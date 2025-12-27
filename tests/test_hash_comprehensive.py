@@ -1,4 +1,4 @@
-"""Comprehensive edge case and attack tests for spiritengine.hash
+"""Comprehensive edge case and attack tests for knurl.hash
 
 This test suite focuses on edge cases, security issues, and attack vectors
 not fully covered in the main test_hash.py.
@@ -17,7 +17,7 @@ import pytest
 import time
 import statistics
 from concurrent.futures import ThreadPoolExecutor
-from spiritengine.hash import compute, verify, HashError
+from knurl.hash import compute, verify, HashError
 
 
 class TestTimingAttackResistance:

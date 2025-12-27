@@ -1,11 +1,11 @@
-"""Gremlin attack tests for spiritengine.diff
+"""Gremlin attack tests for knurl.diff
 
 These tests target assumptions in the diff/patch implementation.
 Each test tries to break something that looks solid.
 """
 
 import pytest
-from spiritengine import diff
+from knurl import diff
 
 
 class TestTypeConfusion:

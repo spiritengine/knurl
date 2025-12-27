@@ -1,4 +1,4 @@
-"""Gremlin attack tests for spiritengine.diverge
+"""Gremlin attack tests for knurl.diverge
 
 These tests target assumptions in divergence detection.
 Each test tries to break something that looks solid.
@@ -13,8 +13,8 @@ Attack vectors:
 """
 
 import pytest
-from spiritengine import diverge
-from spiritengine.diverge import DivergenceResult
+from knurl import diverge
+from knurl.diverge import DivergenceResult
 
 
 def fp(suffix: str) -> str:

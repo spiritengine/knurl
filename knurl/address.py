@@ -7,7 +7,7 @@ SKEIN addresses support three layers:
 - Layer 3 (User): @user/project/folio_id, e.g., "@patrick/speakbot/brief-20251226-n1br"
 
 Usage:
-    from spiritengine.address import parse, construct, validate, ParsedAddress
+    from knurl.address import parse, construct, validate, ParsedAddress
 
     # Parse addresses
     parse("brief-20251226-n1br")
@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Optional
 
 
@@ -143,6 +144,16 @@ def _validate_folio_id(folio_id: str) -> None:
         raise AddressError(
             f"Address has unknown folio type: {folio_type!r}. "
             f"Valid types: {', '.join(sorted(VALID_FOLIO_TYPES))}"
+        )
+
+    # Validate date is a real date
+    date_str = match.group(2)
+    try:
+        datetime.strptime(date_str, "%Y%m%d")
+    except ValueError:
+        raise AddressError(
+            f"Address has invalid date in folio ID: {date_str!r}. "
+            f"Expected valid YYYYMMDD date."
         )
 
 

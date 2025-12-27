@@ -1,6 +1,6 @@
 """Tests for diff computation and application module.
 
-Tests the spiritengine.diff module which provides:
+Tests the knurl.diff module which provides:
 - compute(old, new) -> JSON Patch operations
 - apply(base, patch) -> reconstructed object
 - differs(old, new) -> bool
@@ -26,63 +26,63 @@ from hypothesis import given, strategies as st, settings
 @pytest.fixture
 def diff():
     """Import diff module."""
-    from spiritengine import diff
+    from knurl import diff
     return diff
 
 
 @pytest.fixture
 def compute():
     """Import compute function."""
-    from spiritengine.diff import compute
+    from knurl.diff import compute
     return compute
 
 
 @pytest.fixture
 def apply_patch():
     """Import apply function."""
-    from spiritengine.diff import apply
+    from knurl.diff import apply
     return apply
 
 
 @pytest.fixture
 def differs():
     """Import differs function."""
-    from spiritengine.diff import differs
+    from knurl.diff import differs
     return differs
 
 
 @pytest.fixture
 def summarize():
     """Import summarize function."""
-    from spiritengine.diff import summarize
+    from knurl.diff import summarize
     return summarize
 
 
 @pytest.fixture
 def DiffError():
     """Import DiffError exception."""
-    from spiritengine.diff import DiffError
+    from knurl.diff import DiffError
     return DiffError
 
 
 @pytest.fixture
 def PatchConflictError():
     """Import PatchConflictError exception."""
-    from spiritengine.diff import PatchConflictError
+    from knurl.diff import PatchConflictError
     return PatchConflictError
 
 
 @pytest.fixture
 def InvalidPatchError():
     """Import InvalidPatchError exception."""
-    from spiritengine.diff import InvalidPatchError
+    from knurl.diff import InvalidPatchError
     return InvalidPatchError
 
 
 @pytest.fixture
 def PathNotFoundError():
     """Import PathNotFoundError exception."""
-    from spiritengine.diff import PathNotFoundError
+    from knurl.diff import PathNotFoundError
     return PathNotFoundError
 
 
@@ -297,7 +297,7 @@ class TestRoundTrip:
     @settings(max_examples=50)
     def test_roundtrip_property(self, config):
         """Property-based round-trip test."""
-        from spiritengine.diff import compute, apply
+        from knurl.diff import compute, apply
         old = {}
         patch = compute(old, config)
         result = apply(old, patch)

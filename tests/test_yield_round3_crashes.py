@@ -1,8 +1,8 @@
 """Round 3: Crash bugs with None/invalid inputs and serialization failures."""
 
 import pytest
-from spiritengine.yield_ import serialize, validate, deserialize
-from spiritengine.canon import CanonError
+from knurl.yield_ import serialize, validate, deserialize
+from knurl.canon import CanonError
 
 
 class TestNoneInputCrashes:

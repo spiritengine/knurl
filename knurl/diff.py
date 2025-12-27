@@ -5,7 +5,7 @@ Computes JSON Patch (RFC 6902) format diffs between configs and applies
 patches to reconstruct historical versions.
 
 Usage:
-    from spiritengine import diff
+    from knurl import diff
 
     # Compute diff
     old_config = {'a': 1, 'b': 2}

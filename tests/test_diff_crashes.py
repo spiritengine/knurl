@@ -1,4 +1,4 @@
-"""Crash tests for spiritengine.diff - tests that should fail or cause errors.
+"""Crash tests for knurl.diff - tests that should fail or cause errors.
 
 These tests demonstrate ACTUAL CRASHES and FAILURES, not just edge cases.
 Each test should either:
@@ -13,21 +13,21 @@ import pytest
 @pytest.fixture
 def compute():
     """Import compute function."""
-    from spiritengine.diff import compute
+    from knurl.diff import compute
     return compute
 
 
 @pytest.fixture
 def apply_patch():
     """Import apply function."""
-    from spiritengine.diff import apply
+    from knurl.diff import apply
     return apply
 
 
 @pytest.fixture
 def differs():
     """Import differs function."""
-    from spiritengine.diff import differs
+    from knurl.diff import differs
     return differs
 
 
@@ -45,7 +45,7 @@ def test_CRASH_deep_recursion_in_canonicalize(compute):
 
     Root cause: Depth limit prevents stack overflow
     """
-    from spiritengine.canon import CanonError
+    from knurl.canon import CanonError
 
     # Build deeply nested dict - exceeds MAX_DEPTH (500)
     obj = current = {}
@@ -67,7 +67,7 @@ def test_CRASH_deep_recursion_in_differs(differs):
     2. Call differs()
     3. CanonError during canonicalization
     """
-    from spiritengine.canon import CanonError
+    from knurl.canon import CanonError
 
     obj = current = {}
     for i in range(600):
@@ -93,7 +93,7 @@ def test_CRASH_integer_keys_in_dict(compute):
 
     Root cause: JSON requires string keys, Python allows int keys
     """
-    from spiritengine.canon import CanonError
+    from knurl.canon import CanonError
 
     config = {1: 'one', 2: 'two', 3: 'three'}
 
@@ -109,7 +109,7 @@ def test_CRASH_tuple_keys_in_dict(compute):
     2. Call compute()
     3. TypeError during JSON serialization
     """
-    from spiritengine.canon import CanonError
+    from knurl.canon import CanonError
 
     config = {(1, 2): 'value'}
 
@@ -132,7 +132,7 @@ def test_CRASH_circular_reference_in_config(compute):
 
     Root cause: JSON can't represent cycles
     """
-    from spiritengine.canon import CanonError
+    from knurl.canon import CanonError
 
     config = {'key': 'value'}
     config['self'] = config  # Circular reference
@@ -149,7 +149,7 @@ def test_CRASH_mutual_circular_reference(compute):
     2. Call compute()
     3. CanonError during circular reference check
     """
-    from spiritengine.canon import CanonError
+    from knurl.canon import CanonError
 
     a = {'name': 'a'}
     b = {'name': 'b'}
@@ -172,7 +172,7 @@ def test_CRASH_nan_in_config(compute):
     2. Call compute()
     3. CanonError: "NaN values cannot be serialized"
     """
-    from spiritengine.canon import CanonError
+    from knurl.canon import CanonError
 
     config = {'value': float('nan')}
 
@@ -188,7 +188,7 @@ def test_CRASH_infinity_in_config(compute):
     2. Call compute()
     3. CanonError: "Infinity values cannot be serialized"
     """
-    from spiritengine.canon import CanonError
+    from knurl.canon import CanonError
 
     config = {'value': float('inf')}
 
@@ -198,7 +198,7 @@ def test_CRASH_infinity_in_config(compute):
 
 def test_CRASH_negative_infinity_in_config(compute):
     """ACTUAL CRASH: CanonError for negative infinity."""
-    from spiritengine.canon import CanonError
+    from knurl.canon import CanonError
 
     config = {'value': float('-inf')}
 
@@ -267,7 +267,7 @@ def test_CRASH_patch_missing_op_field(apply_patch):
     2. Call apply()
     3. InvalidPatchError
     """
-    from spiritengine.diff import InvalidPatchError
+    from knurl.diff import InvalidPatchError
 
     base = {'a': 1}
     patch = [{'path': '/a', 'value': 2}]  # Missing 'op'
@@ -284,7 +284,7 @@ def test_CRASH_patch_missing_path_field(apply_patch):
     2. Call apply()
     3. InvalidPatchError
     """
-    from spiritengine.diff import InvalidPatchError
+    from knurl.diff import InvalidPatchError
 
     base = {'a': 1}
     patch = [{'op': 'add', 'value': 2}]  # Missing 'path'
@@ -301,7 +301,7 @@ def test_CRASH_patch_invalid_op_type(apply_patch):
     2. Call apply()
     3. InvalidPatchError
     """
-    from spiritengine.diff import InvalidPatchError
+    from knurl.diff import InvalidPatchError
 
     base = {'a': 1}
     patch = [{'op': 'destroy', 'path': '/a'}]  # Invalid op
@@ -318,7 +318,7 @@ def test_CRASH_patch_with_non_list_type(apply_patch):
     2. Call apply()
     3. InvalidPatchError
     """
-    from spiritengine.diff import InvalidPatchError
+    from knurl.diff import InvalidPatchError
 
     base = {'a': 1}
     patch = {'op': 'add', 'path': '/b', 'value': 2}  # Dict not list
@@ -339,7 +339,7 @@ def test_CRASH_path_missing_leading_slash(apply_patch):
     2. Call apply()
     3. InvalidPatchError
     """
-    from spiritengine.diff import DiffError
+    from knurl.diff import DiffError
 
     base = {'a': 1}
     patch = [{'op': 'replace', 'path': 'a', 'value': 2}]  # No /
@@ -356,7 +356,7 @@ def test_CRASH_path_to_nonexistent_location(apply_patch):
     2. Call apply()
     3. PathNotFoundError or PatchConflictError
     """
-    from spiritengine.diff import DiffError
+    from knurl.diff import DiffError
 
     base = {'a': 1}
     patch = [{'op': 'replace', 'path': '/nonexistent', 'value': 2}]
@@ -373,7 +373,7 @@ def test_CRASH_path_through_primitive(apply_patch):
     2. Call apply()
     3. DiffError - can't traverse primitives
     """
-    from spiritengine.diff import DiffError
+    from knurl.diff import DiffError
 
     base = {'x': 'string'}
     patch = [{'op': 'add', 'path': '/x/nested', 'value': 1}]
@@ -394,7 +394,7 @@ def test_CRASH_array_index_beyond_bounds(apply_patch):
     2. Call apply()
     3. DiffError
     """
-    from spiritengine.diff import DiffError
+    from knurl.diff import DiffError
 
     base = {'arr': [1, 2, 3]}
     patch = [{'op': 'add', 'path': '/arr/100', 'value': 'x'}]
@@ -411,7 +411,7 @@ def test_CRASH_array_index_non_numeric(apply_patch):
     2. Call apply()
     3. DiffError
     """
-    from spiritengine.diff import DiffError
+    from knurl.diff import DiffError
 
     base = {'arr': [1, 2, 3]}
     patch = [{'op': 'replace', 'path': '/arr/abc', 'value': 'x'}]
@@ -432,7 +432,7 @@ def test_CRASH_remove_nonexistent_key(apply_patch):
     2. Call apply()
     3. PatchConflictError
     """
-    from spiritengine.diff import PatchConflictError
+    from knurl.diff import PatchConflictError
 
     base = {'a': 1}
     patch = [{'op': 'remove', 'path': '/nonexistent'}]
@@ -449,7 +449,7 @@ def test_CRASH_remove_from_empty_dict(apply_patch):
     2. Call apply()
     3. PatchConflictError
     """
-    from spiritengine.diff import PatchConflictError
+    from knurl.diff import PatchConflictError
 
     base = {}
     patch = [{'op': 'remove', 'path': '/anything'}]
@@ -470,7 +470,7 @@ def test_CRASH_move_from_nonexistent_source(apply_patch):
     2. Call apply()
     3. DiffError
     """
-    from spiritengine.diff import DiffError
+    from knurl.diff import DiffError
 
     base = {'a': 1}
     patch = [{'op': 'move', 'from': '/nonexistent', 'path': '/b'}]
@@ -487,7 +487,7 @@ def test_CRASH_copy_from_nonexistent_source(apply_patch):
     2. Call apply()
     3. DiffError
     """
-    from spiritengine.diff import DiffError
+    from knurl.diff import DiffError
 
     base = {'a': 1}
     patch = [{'op': 'copy', 'from': '/nonexistent', 'path': '/b'}]
@@ -504,7 +504,7 @@ def test_CRASH_move_missing_from_field(apply_patch):
     2. Call apply()
     3. InvalidPatchError
     """
-    from spiritengine.diff import InvalidPatchError
+    from knurl.diff import InvalidPatchError
 
     base = {'a': 1}
     patch = [{'op': 'move', 'path': '/b'}]  # Missing 'from'
@@ -525,7 +525,7 @@ def test_CRASH_test_operation_value_mismatch(apply_patch):
     2. Call apply()
     3. DiffError - test failed (wrapped JsonPatchTestFailed)
     """
-    from spiritengine.diff import DiffError
+    from knurl.diff import DiffError
 
     base = {'x': 1}
     patch = [{'op': 'test', 'path': '/x', 'value': 2}]  # Expects 2, actual is 1
@@ -542,7 +542,7 @@ def test_CRASH_test_operation_on_nonexistent_path(apply_patch):
     2. Call apply()
     3. DiffError
     """
-    from spiritengine.diff import DiffError
+    from knurl.diff import DiffError
 
     base = {'x': 1}
     patch = [{'op': 'test', 'path': '/nonexistent', 'value': 1}]

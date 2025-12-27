@@ -1,6 +1,6 @@
 """Tests for chain fingerprinting module.
 
-Tests the spiritengine.chain module which provides:
+Tests the knurl.chain module which provides:
 - fingerprint(steps: list[dict]) -> list[str]  # Batch fingerprinting
 - fingerprint_step(config: dict, previous_fingerprint: str = None) -> str  # Incremental
 
@@ -11,7 +11,7 @@ creating a Merkle-like chain where changing any step invalidates all subsequent.
 import pytest
 from hypothesis import given, strategies as st, settings, assume
 
-from spiritengine.chain import fingerprint, fingerprint_step, ChainError
+from knurl.chain import fingerprint, fingerprint_step, ChainError
 
 
 # =============================================================================
@@ -765,7 +765,7 @@ class TestCanonHashIntegration:
 
     def test_fingerprint_format_matches_hash_module(self):
         """Fingerprint format matches ledger.hash output format."""
-        from spiritengine.hash import compute
+        from knurl.hash import compute
 
         result = fingerprint([{"test": "value"}])
         # Should be sha256:hexdigest format

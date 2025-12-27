@@ -9,8 +9,8 @@ import json
 import math
 import pytest
 
-from spiritengine import yield_ as y
-from spiritengine.canon import CanonError
+from knurl import yield_ as y
+from knurl.canon import CanonError
 
 
 class TestTypeConfusion:
@@ -253,7 +253,7 @@ class TestPathologicalInputs:
 
     def test_very_deep_nesting_may_fail(self):
         """Extremely deep nesting exceeding MAX_DEPTH raises CanonError."""
-        from spiritengine.canon import CanonError
+        from knurl.canon import CanonError
 
         depth = 600  # Exceeds MAX_DEPTH (500)
         obj = {'value': 'bottom'}

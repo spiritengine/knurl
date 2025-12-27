@@ -5,7 +5,7 @@ Produces deterministic hashes where the same content always gets the same hash.
 The hash IS the address - use it for content-addressable storage and deduplication.
 
 Usage:
-    from spiritengine.hash import compute, verify, HashError
+    from knurl.hash import compute, verify, HashError
 
     # Basic hashing
     content_hash = compute("hello world")  # 'sha256:b94d27b9...'

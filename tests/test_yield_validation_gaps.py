@@ -5,7 +5,7 @@ enforce types or check for meaningless values like empty strings or None.
 """
 
 import pytest
-from spiritengine.yield_ import validate, serialize, deserialize
+from knurl.yield_ import validate, serialize, deserialize
 
 
 class TestValidationTypeChecking:

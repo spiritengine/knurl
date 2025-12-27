@@ -29,35 +29,35 @@ import pytest
 @pytest.fixture
 def serialize():
     """Import serialize function."""
-    from spiritengine.yield_ import serialize
+    from knurl.yield_ import serialize
     return serialize
 
 
 @pytest.fixture
 def deserialize():
     """Import deserialize function."""
-    from spiritengine.yield_ import deserialize
+    from knurl.yield_ import deserialize
     return deserialize
 
 
 @pytest.fixture
 def validate():
     """Import validate function."""
-    from spiritengine.yield_ import validate
+    from knurl.yield_ import validate
     return validate
 
 
 @pytest.fixture
 def get_task_id():
     """Import get_task_id function."""
-    from spiritengine.yield_ import get_task_id
+    from knurl.yield_ import get_task_id
     return get_task_id
 
 
 @pytest.fixture
 def get_shard_name():
     """Import get_shard_name function."""
-    from spiritengine.yield_ import get_shard_name
+    from knurl.yield_ import get_shard_name
     return get_shard_name
 
 
@@ -536,7 +536,7 @@ class TestCircularReferences:
 
     def test_circular_reference_in_output_errors(self, serialize):
         """Circular reference in output raises error."""
-        from spiritengine.canon import CanonError
+        from knurl.canon import CanonError
 
         circular = {'a': 1}
         circular['self'] = circular
@@ -552,7 +552,7 @@ class TestCircularReferences:
 
     def test_circular_reference_in_metadata_errors(self, serialize):
         """Circular reference in metadata raises error."""
-        from spiritengine.canon import CanonError
+        from knurl.canon import CanonError
 
         circular = [1, 2, 3]
         circular.append(circular)
@@ -730,7 +730,7 @@ class TestHypothesis:
     )
     def test_any_valid_yield_roundtrips(self, task_id, result):
         """Any valid yield round-trips correctly."""
-        from spiritengine.yield_ import serialize, deserialize
+        from knurl.yield_ import serialize, deserialize
 
         # Skip strings that can't be UTF-8 encoded
         try:
@@ -749,7 +749,7 @@ class TestHypothesis:
     @settings(max_examples=50)
     def test_validation_accepts_valid_yields(self, task_id, result):
         """Validation accepts any structurally valid yield."""
-        from spiritengine.yield_ import validate
+        from knurl.yield_ import validate
 
         try:
             task_id.encode('utf-8')

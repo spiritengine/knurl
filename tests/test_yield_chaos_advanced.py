@@ -5,7 +5,7 @@ More exotic edge cases and potential exploits.
 
 import json
 import pytest
-from spiritengine import yield_ as y
+from knurl import yield_ as y
 
 
 class TestPrototypeInspiration:

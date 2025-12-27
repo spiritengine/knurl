@@ -11,7 +11,7 @@ Attack vectors:
 
 import pytest
 import json
-from spiritengine.chain import fingerprint, fingerprint_step, ChainError
+from knurl.chain import fingerprint, fingerprint_step, ChainError
 
 
 def fp(config):

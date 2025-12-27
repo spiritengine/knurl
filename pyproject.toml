@@ -1,5 +1,5 @@
 [project]
-name = "spiritengine"
+name = "knurl"
 version = "0.1.0"
 description = "Rock-solid primitives for content-addressable hashing, chain fingerprinting, and config diffing"
 readme = "README.md"

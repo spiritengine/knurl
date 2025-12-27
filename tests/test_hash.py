@@ -1,6 +1,6 @@
 """Tests for content-addressable hash module.
 
-Tests the spiritengine.hash module which provides:
+Tests the knurl.hash module which provides:
 - compute(content, prefix=None) -> hash string
 - verify(content, hash_string) -> bool
 - HashError for validation failures
@@ -9,7 +9,7 @@ Tests the spiritengine.hash module which provides:
 import pytest
 from hypothesis import given, strategies as st
 
-from spiritengine.hash import compute, verify, HashError
+from knurl.hash import compute, verify, HashError
 
 
 # Known SHA256 test vectors
@@ -381,7 +381,7 @@ class TestCanonIntegration:
 
     def test_canon_then_hash(self):
         """Canonical serialization then hashing is deterministic."""
-        from spiritengine.canon import serialize
+        from knurl.canon import serialize
 
         obj = {"b": 1, "a": 2, "nested": {"z": 3, "y": 4}}
 
@@ -395,7 +395,7 @@ class TestCanonIntegration:
 
     def test_canon_key_order_irrelevant(self):
         """Different dict key orders produce same canonical hash."""
-        from spiritengine.canon import serialize
+        from knurl.canon import serialize
 
         obj1 = {"a": 1, "b": 2}
         obj2 = {"b": 2, "a": 1}

@@ -4,7 +4,7 @@ These are NEW bugs beyond the validation gaps from Round 1.
 """
 
 import pytest
-from spiritengine.yield_ import deserialize, serialize, validate
+from knurl.yield_ import deserialize, serialize, validate
 
 
 class TestDeserializeTypeViolations:
@@ -171,7 +171,7 @@ class TestGetTaskIdReturnType:
 
     def test_get_task_id_returns_non_string(self):
         """get_task_id() can return list/dict/int instead of str|None."""
-        from spiritengine.yield_ import get_task_id
+        from knurl.yield_ import get_task_id
 
         # Type hint says str | None, but actually returns Any
         result = get_task_id({'task_id': [1, 2, 3], 'result': 'success'})
@@ -182,7 +182,7 @@ class TestGetTaskIdReturnType:
 
     def test_get_task_id_with_dict_task_id(self):
         """get_task_id() returns dict when task_id is dict."""
-        from spiritengine.yield_ import get_task_id
+        from knurl.yield_ import get_task_id
 
         result = get_task_id({'task_id': {'nested': 'value'}, 'result': 'success'})
 

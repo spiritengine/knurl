@@ -9,7 +9,7 @@ These tests focus on edge cases Oracle identified that weren't fully covered:
 
 import pytest
 import unicodedata
-from spiritengine.hash import compute, verify, HashError
+from knurl.hash import compute, verify, HashError
 
 
 class TestUnicodeNormalizationForms:

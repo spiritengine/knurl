@@ -11,7 +11,7 @@ All attacks that DON'T just raise expected exceptions.
 """
 
 import pytest
-from spiritengine import diff
+from knurl import diff
 import copy
 
 

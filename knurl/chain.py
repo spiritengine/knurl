@@ -14,7 +14,7 @@ Design based on research into:
 - Docker layer caching (ChainID formula)
 
 Usage:
-    from spiritengine import chain
+    from knurl import chain
 
     # Batch: fingerprint entire chain at once
     steps = [config1, config2, config3, config4]

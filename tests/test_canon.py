@@ -31,7 +31,7 @@ from typing import Any
 import pytest
 
 # Will import from implementation
-# from spiritengine.canon import serialize, CanonError
+# from knurl.canon import serialize, CanonError
 
 
 # =============================================================================
@@ -41,14 +41,14 @@ import pytest
 @pytest.fixture
 def serialize():
     """Import serialize function - allows tests to run before implementation exists."""
-    from spiritengine.canon import serialize
+    from knurl.canon import serialize
     return serialize
 
 
 @pytest.fixture
 def CanonError():
     """Import CanonError exception class."""
-    from spiritengine.canon import CanonError
+    from knurl.canon import CanonError
     return CanonError
 
 
@@ -764,7 +764,7 @@ class TestHypothesis:
     @given(st.integers())
     def test_integer_determinism(self, n):
         """Any integer serializes deterministically."""
-        from spiritengine.canon import serialize
+        from knurl.canon import serialize
         result1 = serialize(n)
         result2 = serialize(n)
         assert result1 == result2
@@ -772,7 +772,7 @@ class TestHypothesis:
     @given(st.floats(allow_nan=False, allow_infinity=False))
     def test_float_determinism(self, f):
         """Any valid float serializes deterministically."""
-        from spiritengine.canon import serialize
+        from knurl.canon import serialize
         result1 = serialize(f)
         result2 = serialize(f)
         assert result1 == result2
@@ -780,7 +780,7 @@ class TestHypothesis:
     @given(st.text())
     def test_string_determinism(self, s):
         """Any string serializes deterministically."""
-        from spiritengine.canon import serialize
+        from knurl.canon import serialize
         # Skip strings with lone surrogates
         try:
             s.encode('utf-8')
@@ -794,7 +794,7 @@ class TestHypothesis:
     @given(st.dictionaries(st.text(), st.integers()))
     def test_dict_determinism(self, d):
         """Any dict serializes deterministically."""
-        from spiritengine.canon import serialize
+        from knurl.canon import serialize
         # Skip strings with lone surrogates in keys
         for key in d:
             try:
@@ -809,7 +809,7 @@ class TestHypothesis:
     @given(st.lists(st.integers()))
     def test_list_determinism(self, lst):
         """Any list serializes deterministically."""
-        from spiritengine.canon import serialize
+        from knurl.canon import serialize
         result1 = serialize(lst)
         result2 = serialize(lst)
         assert result1 == result2
@@ -842,7 +842,7 @@ class TestHypothesis:
 
         assume(check_strings(obj))
 
-        from spiritengine.canon import serialize
+        from knurl.canon import serialize
         result = serialize(obj)
         parsed = json.loads(result)
         # Note: int/float distinction might be lost in round-trip

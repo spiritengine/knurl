@@ -1,12 +1,12 @@
 # SPIRITENGINE - Content-Addressable Primitives
 #
 # Provides rock-solid primitives for:
-# - spiritengine.canon: Canonical serialization
-# - spiritengine.hash: Content-addressable hashing
-# - spiritengine.yield_: Yield serialization
-# - spiritengine.diff: Diff computation & application
-# - spiritengine.chain: Chain fingerprinting
-# - spiritengine.diverge: Divergence detection
+# - knurl.canon: Canonical serialization
+# - knurl.hash: Content-addressable hashing
+# - knurl.yield_: Yield serialization
+# - knurl.diff: Diff computation & application
+# - knurl.chain: Chain fingerprinting
+# - knurl.diverge: Divergence detection
 
 from .canon import serialize, CanonError
 from .hash import compute, verify, HashError

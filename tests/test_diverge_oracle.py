@@ -1,4 +1,4 @@
-"""Oracle property-based tests for spiritengine.diverge
+"""Oracle property-based tests for knurl.diverge
 
 Uses Hypothesis to verify mathematical properties hold for ALL possible inputs.
 
@@ -13,8 +13,8 @@ Properties verified:
 
 import pytest
 from hypothesis import given, strategies as st, assume
-from spiritengine import diverge
-from spiritengine.diverge import DivergenceResult
+from knurl import diverge
+from knurl.diverge import DivergenceResult
 
 
 # Strategy: Generate valid fingerprint-like strings

@@ -1,5 +1,5 @@
 """
-Tests for spiritengine.address module.
+Tests for knurl.address module.
 
 Tests follow the Rock-Solid Primitive playbook: define what "correct" means before implementing.
 
@@ -12,7 +12,7 @@ Coverage:
 import pytest
 
 # Import will fail until implementation exists
-from spiritengine.address import (
+from knurl.address import (
     parse,
     construct,
     validate,
@@ -307,6 +307,30 @@ class TestValidateFolioFormat:
         """Unknown folio types are rejected."""
         assert validate("unknown-20251226-n1br") is False
         assert validate("foo-20251226-n1br") is False
+
+    def test_validate_invalid_date_rejected(self):
+        """Invalid dates in folio IDs are rejected."""
+        # Month 13
+        assert validate("brief-20251301-n1br") is False
+        # Day 32
+        assert validate("brief-20251232-n1br") is False
+        # Month 00
+        assert validate("brief-20250001-n1br") is False
+        # Day 00
+        assert validate("brief-20250100-n1br") is False
+        # Feb 30
+        assert validate("brief-20250230-n1br") is False
+        # Feb 29 in non-leap year
+        assert validate("brief-20230229-n1br") is False
+
+    def test_validate_valid_dates_accepted(self):
+        """Valid dates are accepted."""
+        # Normal date
+        assert validate("brief-20251226-n1br") is True
+        # Feb 29 in leap year
+        assert validate("brief-20240229-n1br") is True
+        # End of month
+        assert validate("brief-20251231-n1br") is True
 
 
 class TestRoundTrip:

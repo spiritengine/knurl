@@ -14,16 +14,16 @@ Rock-solid primitives for content-addressable hashing, chain fingerprinting, and
 ## Installation
 
 ```bash
-pip install spiritengine
+pip install knurl
 
 # With diff support (requires jsonpatch)
-pip install spiritengine[diff]
+pip install knurl[diff]
 ```
 
 ## Usage
 
 ```python
-from spiritengine import canon, hash, chain, diverge
+from knurl import canon, hash, chain, diverge
 
 # Canonical serialization
 canonical_bytes = canon.serialize({"b": 1, "a": 2})  # b'{"a":2,"b":1}'

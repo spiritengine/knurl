@@ -1,7 +1,7 @@
 """Comprehensive test suite for ledger.diverge module."""
 import pytest
-from spiritengine import diverge
-from spiritengine.diverge import DivergenceResult
+from knurl import diverge
+from knurl.diverge import DivergenceResult
 
 
 def fp(suffix: str) -> str:

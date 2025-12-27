@@ -5,7 +5,7 @@ the remaining small gaps around escaping combinations and type coercion.
 """
 
 import pytest
-from spiritengine.diff import compute, apply, DiffError
+from knurl.diff import compute, apply, DiffError
 
 
 class TestEscapingCombinations:

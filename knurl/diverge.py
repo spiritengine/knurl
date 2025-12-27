@@ -7,7 +7,7 @@ Compares two fingerprint chains and identifies where they diverge. This enables:
 - Change analysis (what changed between runs)
 
 Usage:
-    from spiritengine import diverge
+    from knurl import diverge
 
     # Compare two fingerprint chains
     old_fps = ['sha256:aaa', 'sha256:bbb', 'sha256:ccc', 'sha256:ddd']
