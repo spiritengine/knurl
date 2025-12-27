@@ -471,3 +471,150 @@ class TestParsedAddress:
         assert bare.is_user_scoped is False
         assert project.is_user_scoped is False
         assert user.is_user_scoped is True
+
+
+# === Property-Based Tests ===
+
+from hypothesis import given, strategies as st, assume
+from knurl.address import VALID_FOLIO_TYPES
+
+
+# Strategy for valid 4-char suffixes (lowercase alphanumeric)
+suffix_strategy = st.text(
+    alphabet="abcdefghijklmnopqrstuvwxyz0123456789",
+    min_size=4,
+    max_size=4,
+)
+
+# Strategy for valid folio types
+folio_type_strategy = st.sampled_from(sorted(VALID_FOLIO_TYPES))
+
+# Strategy for valid dates (formatted as YYYYMMDD)
+# Constrain to years 1000-9999 to ensure 8-digit dates
+from datetime import date
+date_strategy = st.dates(
+    min_value=date(1000, 1, 1),
+    max_value=date(9999, 12, 31),
+).map(lambda d: d.strftime("%Y%m%d"))
+
+# Strategy for valid project/user names (alphanumeric + hyphen + underscore, 1-128 chars)
+name_strategy = st.text(
+    alphabet="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-",
+    min_size=1,
+    max_size=128,
+)
+
+
+@st.composite
+def folio_id_strategy(draw):
+    """Generate valid folio IDs."""
+    folio_type = draw(folio_type_strategy)
+    date = draw(date_strategy)
+    suffix = draw(suffix_strategy)
+    return f"{folio_type}-{date}-{suffix}"
+
+
+class TestPropertyBased:
+    """Property-based tests using Hypothesis."""
+
+    @given(folio_id=folio_id_strategy())
+    def test_roundtrip_bare_address(self, folio_id):
+        """Round-trip invariant for bare addresses: parse(construct(...)) returns same components."""
+        addr = construct(folio_id=folio_id)
+        parsed = parse(addr)
+        assert parsed.user is None
+        assert parsed.project is None
+        assert parsed.folio_id == folio_id
+
+    @given(project=name_strategy, folio_id=folio_id_strategy())
+    def test_roundtrip_project_address(self, project, folio_id):
+        """Round-trip invariant for project-qualified addresses."""
+        addr = construct(project=project, folio_id=folio_id)
+        parsed = parse(addr)
+        assert parsed.user is None
+        assert parsed.project == project
+        assert parsed.folio_id == folio_id
+
+    @given(user=name_strategy, project=name_strategy, folio_id=folio_id_strategy())
+    def test_roundtrip_user_scoped_address(self, user, project, folio_id):
+        """Round-trip invariant for user-scoped addresses."""
+        addr = construct(user=user, project=project, folio_id=folio_id)
+        parsed = parse(addr)
+        assert parsed.user == user
+        assert parsed.project == project
+        assert parsed.folio_id == folio_id
+
+    @given(folio_id=folio_id_strategy())
+    def test_parse_idempotent_bare(self, folio_id):
+        """Idempotence: parse(addr) called twice gives same result."""
+        addr = construct(folio_id=folio_id)
+        parsed1 = parse(addr)
+        parsed2 = parse(addr)
+        assert parsed1 == parsed2
+
+    @given(project=name_strategy, folio_id=folio_id_strategy())
+    def test_parse_idempotent_project(self, project, folio_id):
+        """Idempotence: parse(addr) called twice gives same result for project-qualified."""
+        addr = construct(project=project, folio_id=folio_id)
+        parsed1 = parse(addr)
+        parsed2 = parse(addr)
+        assert parsed1 == parsed2
+
+    @given(user=name_strategy, project=name_strategy, folio_id=folio_id_strategy())
+    def test_parse_idempotent_user_scoped(self, user, project, folio_id):
+        """Idempotence: parse(addr) called twice gives same result for user-scoped."""
+        addr = construct(user=user, project=project, folio_id=folio_id)
+        parsed1 = parse(addr)
+        parsed2 = parse(addr)
+        assert parsed1 == parsed2
+
+    @given(folio_id=folio_id_strategy())
+    def test_validate_true_for_constructed_bare(self, folio_id):
+        """validate() returns True for any constructed bare address."""
+        addr = construct(folio_id=folio_id)
+        assert validate(addr) is True
+
+    @given(project=name_strategy, folio_id=folio_id_strategy())
+    def test_validate_true_for_constructed_project(self, project, folio_id):
+        """validate() returns True for any constructed project-qualified address."""
+        addr = construct(project=project, folio_id=folio_id)
+        assert validate(addr) is True
+
+    @given(user=name_strategy, project=name_strategy, folio_id=folio_id_strategy())
+    def test_validate_true_for_constructed_user_scoped(self, user, project, folio_id):
+        """validate() returns True for any constructed user-scoped address."""
+        addr = construct(user=user, project=project, folio_id=folio_id)
+        assert validate(addr) is True
+
+    @given(folio_id=folio_id_strategy())
+    def test_valid_address_is_parseable_bare(self, folio_id):
+        """Any address that passes validate() should be parseable without exception."""
+        addr = construct(folio_id=folio_id)
+        if validate(addr):
+            # Should not raise
+            parsed = parse(addr)
+            assert parsed is not None
+
+    @given(project=name_strategy, folio_id=folio_id_strategy())
+    def test_valid_address_is_parseable_project(self, project, folio_id):
+        """Any project-qualified address that passes validate() should be parseable."""
+        addr = construct(project=project, folio_id=folio_id)
+        if validate(addr):
+            parsed = parse(addr)
+            assert parsed is not None
+
+    @given(user=name_strategy, project=name_strategy, folio_id=folio_id_strategy())
+    def test_valid_address_is_parseable_user_scoped(self, user, project, folio_id):
+        """Any user-scoped address that passes validate() should be parseable."""
+        addr = construct(user=user, project=project, folio_id=folio_id)
+        if validate(addr):
+            parsed = parse(addr)
+            assert parsed is not None
+
+    @given(st.text())
+    def test_validate_implies_parseable(self, addr):
+        """For any string, if validate() returns True, parse() must not raise."""
+        if validate(addr):
+            # Should not raise
+            parsed = parse(addr)
+            assert parsed is not None
