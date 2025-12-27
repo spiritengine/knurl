@@ -1,0 +1,449 @@
+"""
+Tests for spiritengine.address module.
+
+Tests follow the Rock-Solid Primitive playbook: define what "correct" means before implementing.
+
+Coverage:
+- Happy path: basic parse/construct/validate usage
+- Edge cases: empty, unicode, whitespace, multiple slashes
+- Error cases: invalid inputs, malformed addresses
+"""
+
+import pytest
+
+# Import will fail until implementation exists
+from spiritengine.address import (
+    parse,
+    construct,
+    validate,
+    AddressError,
+    ParsedAddress,
+)
+
+
+class TestParse:
+    """Tests for parse() function."""
+
+    # === Layer 1: Bare folio ID ===
+
+    def test_parse_bare_folio_id(self):
+        """Bare folio ID returns (None, folio_id)."""
+        result = parse("brief-20251226-n1br")
+        assert result == ParsedAddress(user=None, project=None, folio_id="brief-20251226-n1br")
+
+    def test_parse_bare_issue(self):
+        """Different folio types work."""
+        result = parse("issue-20251106-a7b3")
+        assert result == ParsedAddress(user=None, project=None, folio_id="issue-20251106-a7b3")
+
+    def test_parse_bare_friction(self):
+        result = parse("friction-20251225-xyz9")
+        assert result == ParsedAddress(user=None, project=None, folio_id="friction-20251225-xyz9")
+
+    # === Layer 2: Project-qualified ===
+
+    def test_parse_project_qualified(self):
+        """project/folio_id returns (project, folio_id)."""
+        result = parse("speakbot/brief-20251226-n1br")
+        assert result == ParsedAddress(user=None, project="speakbot", folio_id="brief-20251226-n1br")
+
+    def test_parse_project_with_hyphen(self):
+        """Project names with hyphens work."""
+        result = parse("my-project/issue-20251106-a7b3")
+        assert result == ParsedAddress(user=None, project="my-project", folio_id="issue-20251106-a7b3")
+
+    def test_parse_project_with_underscore(self):
+        """Project names with underscores work."""
+        result = parse("my_project/issue-20251106-a7b3")
+        assert result == ParsedAddress(user=None, project="my_project", folio_id="issue-20251106-a7b3")
+
+    def test_parse_project_with_numbers(self):
+        """Project names with numbers work."""
+        result = parse("project123/brief-20251226-n1br")
+        assert result == ParsedAddress(user=None, project="project123", folio_id="brief-20251226-n1br")
+
+    # === Layer 3: User-scoped ===
+
+    def test_parse_user_scoped(self):
+        """@user/project/folio_id returns full ParsedAddress."""
+        result = parse("@patrick/speakbot/brief-20251226-n1br")
+        assert result == ParsedAddress(user="patrick", project="speakbot", folio_id="brief-20251226-n1br")
+
+    def test_parse_user_with_hyphen(self):
+        """User names with hyphens work."""
+        result = parse("@my-user/project/issue-20251106-a7b3")
+        assert result == ParsedAddress(user="my-user", project="project", folio_id="issue-20251106-a7b3")
+
+    def test_parse_user_with_underscore(self):
+        """User names with underscores work."""
+        result = parse("@my_user/project/issue-20251106-a7b3")
+        assert result == ParsedAddress(user="my_user", project="project", folio_id="issue-20251106-a7b3")
+
+    # === Edge Cases ===
+
+    def test_parse_preserves_case_in_project(self):
+        """Case is preserved in project names."""
+        result = parse("MyProject/brief-20251226-n1br")
+        assert result == ParsedAddress(user=None, project="MyProject", folio_id="brief-20251226-n1br")
+
+    def test_parse_strips_whitespace(self):
+        """Leading/trailing whitespace is stripped."""
+        result = parse("  brief-20251226-n1br  ")
+        assert result == ParsedAddress(user=None, project=None, folio_id="brief-20251226-n1br")
+
+    def test_parse_strips_whitespace_project(self):
+        """Whitespace stripped from project-qualified."""
+        result = parse("  speakbot/brief-20251226-n1br  ")
+        assert result == ParsedAddress(user=None, project="speakbot", folio_id="brief-20251226-n1br")
+
+    # === Error Cases ===
+
+    def test_parse_empty_string(self):
+        """Empty string raises AddressError."""
+        with pytest.raises(AddressError, match="empty"):
+            parse("")
+
+    def test_parse_whitespace_only(self):
+        """Whitespace-only string raises AddressError."""
+        with pytest.raises(AddressError, match="empty"):
+            parse("   ")
+
+    def test_parse_none_raises(self):
+        """None input raises AddressError."""
+        with pytest.raises(AddressError, match="must be a string"):
+            parse(None)
+
+    def test_parse_non_string_raises(self):
+        """Non-string input raises AddressError."""
+        with pytest.raises(AddressError, match="must be a string"):
+            parse(123)
+
+    def test_parse_multiple_slashes_error(self):
+        """More than 2 slashes (excluding @ prefix) is an error."""
+        with pytest.raises(AddressError, match="too many"):
+            parse("a/b/c/d")
+
+    def test_parse_empty_project_error(self):
+        """Empty project name is an error."""
+        with pytest.raises(AddressError, match="empty.*project"):
+            parse("/brief-20251226-n1br")
+
+    def test_parse_empty_folio_id_error(self):
+        """Empty folio ID is an error."""
+        with pytest.raises(AddressError, match="empty.*folio"):
+            parse("speakbot/")
+
+    def test_parse_empty_user_error(self):
+        """Empty user name is an error."""
+        with pytest.raises(AddressError, match="empty.*user"):
+            parse("@/project/brief-20251226-n1br")
+
+    def test_parse_at_without_slash_is_bare(self):
+        """@ in folio ID without slash is treated as bare."""
+        # Unusual but valid: if someone has a folio ID starting with @
+        # We treat this as bare since there's no slash
+        with pytest.raises(AddressError, match="invalid.*folio"):
+            parse("@notavalidfolio")
+
+    def test_parse_invalid_project_chars(self):
+        """Project names with invalid characters raise error."""
+        with pytest.raises(AddressError, match="invalid.*project"):
+            parse("proj!ect/brief-20251226-n1br")
+
+    def test_parse_invalid_user_chars(self):
+        """User names with invalid characters raise error."""
+        with pytest.raises(AddressError, match="invalid.*user"):
+            parse("@us!er/project/brief-20251226-n1br")
+
+    def test_parse_trailing_slash_error(self):
+        """Trailing slash with no folio is an error."""
+        with pytest.raises(AddressError, match="empty.*folio"):
+            parse("project/")
+
+
+class TestConstruct:
+    """Tests for construct() function."""
+
+    def test_construct_bare(self):
+        """Construct bare address from folio_id only."""
+        result = construct(folio_id="brief-20251226-n1br")
+        assert result == "brief-20251226-n1br"
+
+    def test_construct_project_qualified(self):
+        """Construct project-qualified address."""
+        result = construct(project="speakbot", folio_id="brief-20251226-n1br")
+        assert result == "speakbot/brief-20251226-n1br"
+
+    def test_construct_user_scoped(self):
+        """Construct user-scoped address."""
+        result = construct(user="patrick", project="speakbot", folio_id="brief-20251226-n1br")
+        assert result == "@patrick/speakbot/brief-20251226-n1br"
+
+    def test_construct_none_project_is_bare(self):
+        """None project produces bare address."""
+        result = construct(project=None, folio_id="brief-20251226-n1br")
+        assert result == "brief-20251226-n1br"
+
+    def test_construct_empty_project_is_bare(self):
+        """Empty string project produces bare address."""
+        result = construct(project="", folio_id="brief-20251226-n1br")
+        assert result == "brief-20251226-n1br"
+
+    # === Error Cases ===
+
+    def test_construct_missing_folio_id(self):
+        """Missing folio_id raises error."""
+        with pytest.raises(AddressError, match="folio_id.*required"):
+            construct()
+
+    def test_construct_none_folio_id(self):
+        """None folio_id raises error."""
+        with pytest.raises(AddressError, match="folio_id.*required"):
+            construct(folio_id=None)
+
+    def test_construct_empty_folio_id(self):
+        """Empty folio_id raises error."""
+        with pytest.raises(AddressError, match="folio_id.*required"):
+            construct(folio_id="")
+
+    def test_construct_user_without_project(self):
+        """User without project raises error (can't have Layer 3 without Layer 2)."""
+        with pytest.raises(AddressError, match="project.*required.*user"):
+            construct(user="patrick", folio_id="brief-20251226-n1br")
+
+    def test_construct_invalid_project_chars(self):
+        """Invalid project characters raise error."""
+        with pytest.raises(AddressError, match="invalid.*project"):
+            construct(project="bad/name", folio_id="brief-20251226-n1br")
+
+    def test_construct_invalid_user_chars(self):
+        """Invalid user characters raise error."""
+        with pytest.raises(AddressError, match="invalid.*user"):
+            construct(user="bad@name", project="project", folio_id="brief-20251226-n1br")
+
+
+class TestValidate:
+    """Tests for validate() function."""
+
+    # === Valid addresses ===
+
+    def test_validate_bare_folio(self):
+        """Valid bare folio ID returns True."""
+        assert validate("brief-20251226-n1br") is True
+
+    def test_validate_project_qualified(self):
+        """Valid project-qualified address returns True."""
+        assert validate("speakbot/brief-20251226-n1br") is True
+
+    def test_validate_user_scoped(self):
+        """Valid user-scoped address returns True."""
+        assert validate("@patrick/speakbot/brief-20251226-n1br") is True
+
+    def test_validate_various_types(self):
+        """Various folio types are valid."""
+        types = ["brief", "issue", "friction", "finding", "notion",
+                 "summary", "tender", "plan", "playbook", "mantle", "writ"]
+        for t in types:
+            assert validate(f"{t}-20251226-abc1") is True
+
+    # === Invalid addresses ===
+
+    def test_validate_empty(self):
+        """Empty string is invalid."""
+        assert validate("") is False
+
+    def test_validate_whitespace(self):
+        """Whitespace only is invalid."""
+        assert validate("   ") is False
+
+    def test_validate_bad_format(self):
+        """Bad format is invalid."""
+        assert validate("not-a-valid-address") is False
+
+    def test_validate_invalid_project(self):
+        """Invalid project chars is invalid."""
+        assert validate("bad!project/brief-20251226-n1br") is False
+
+    def test_validate_empty_project(self):
+        """Empty project is invalid."""
+        assert validate("/brief-20251226-n1br") is False
+
+    def test_validate_too_many_slashes(self):
+        """Too many slashes is invalid."""
+        assert validate("a/b/c/d") is False
+
+    def test_validate_non_string(self):
+        """Non-string is invalid (returns False, doesn't raise)."""
+        assert validate(None) is False
+        assert validate(123) is False
+        assert validate([]) is False
+
+
+class TestValidateFolioFormat:
+    """Tests for folio ID format validation."""
+
+    def test_validate_correct_format(self):
+        """Correct folio format is valid."""
+        # {type}-{YYYYMMDD}-{4char}
+        assert validate("brief-20251226-n1br") is True
+        assert validate("issue-20251106-a7b3") is True
+
+    def test_validate_date_must_be_8_digits(self):
+        """Date part must be exactly 8 digits."""
+        assert validate("brief-2025126-n1br") is False  # 7 digits
+        assert validate("brief-202512260-n1br") is False  # 9 digits
+
+    def test_validate_suffix_must_be_4_chars(self):
+        """Suffix must be exactly 4 chars."""
+        assert validate("brief-20251226-n1b") is False  # 3 chars
+        assert validate("brief-20251226-n1brx") is False  # 5 chars
+
+    def test_validate_suffix_alphanumeric_lowercase(self):
+        """Suffix must be lowercase alphanumeric."""
+        assert validate("brief-20251226-N1BR") is False  # uppercase
+        assert validate("brief-20251226-n1b!") is False  # special char
+
+    def test_validate_unknown_type_rejected(self):
+        """Unknown folio types are rejected."""
+        assert validate("unknown-20251226-n1br") is False
+        assert validate("foo-20251226-n1br") is False
+
+
+class TestRoundTrip:
+    """Tests that parse and construct are inverses."""
+
+    def test_roundtrip_bare(self):
+        """parse(construct(x)) == x for bare addresses."""
+        addr = "brief-20251226-n1br"
+        parsed = parse(addr)
+        reconstructed = construct(folio_id=parsed.folio_id)
+        assert reconstructed == addr
+
+    def test_roundtrip_project(self):
+        """parse(construct(x)) == x for project-qualified."""
+        addr = "speakbot/brief-20251226-n1br"
+        parsed = parse(addr)
+        reconstructed = construct(project=parsed.project, folio_id=parsed.folio_id)
+        assert reconstructed == addr
+
+    def test_roundtrip_user(self):
+        """parse(construct(x)) == x for user-scoped."""
+        addr = "@patrick/speakbot/brief-20251226-n1br"
+        parsed = parse(addr)
+        reconstructed = construct(user=parsed.user, project=parsed.project, folio_id=parsed.folio_id)
+        assert reconstructed == addr
+
+    def test_construct_then_parse(self):
+        """construct then parse returns same values."""
+        user, project, folio = "alice", "myproj", "issue-20251226-abcd"
+        addr = construct(user=user, project=project, folio_id=folio)
+        parsed = parse(addr)
+        assert parsed.user == user
+        assert parsed.project == project
+        assert parsed.folio_id == folio
+
+
+class TestLengthLimits:
+    """Tests for length-based DoS prevention."""
+
+    def test_parse_very_long_project(self):
+        """Very long project names are rejected."""
+        long_project = "a" * 1000
+        with pytest.raises(AddressError, match="too long|length"):
+            parse(f"{long_project}/brief-20251226-n1br")
+
+    def test_parse_very_long_user(self):
+        """Very long user names are rejected."""
+        long_user = "a" * 1000
+        with pytest.raises(AddressError, match="too long|length"):
+            parse(f"@{long_user}/project/brief-20251226-n1br")
+
+    def test_parse_very_long_address(self):
+        """Very long total address is rejected."""
+        # Even if individual components are ok, total length matters
+        long_addr = "a" * 300 + "/brief-20251226-n1br"
+        with pytest.raises(AddressError, match="too long|length"):
+            parse(long_addr)
+
+    def test_construct_very_long_project(self):
+        """Very long project names rejected in construct."""
+        with pytest.raises(AddressError, match="too long|length"):
+            construct(project="x" * 1000, folio_id="brief-20251226-n1br")
+
+    def test_reasonable_length_ok(self):
+        """Reasonable length names work."""
+        # 50 chars is reasonable
+        result = parse("a" * 50 + "/brief-20251226-n1br")
+        assert result.project == "a" * 50
+
+
+class TestWhitespaceHandling:
+    """Tests for whitespace handling edge cases."""
+
+    def test_parse_whitespace_around_slash(self):
+        """Whitespace around slashes is handled."""
+        # Should either strip or reject clearly
+        result = parse("speakbot / brief-20251226-n1br")
+        # Expect stripped
+        assert result.project == "speakbot"
+        assert result.folio_id == "brief-20251226-n1br"
+
+    def test_parse_whitespace_in_user_scoped(self):
+        """Whitespace around slashes in user-scoped is handled."""
+        result = parse("@patrick / speakbot / brief-20251226-n1br")
+        assert result.user == "patrick"
+        assert result.project == "speakbot"
+        assert result.folio_id == "brief-20251226-n1br"
+
+
+class TestEdgeCaseErrorMessages:
+    """Tests for clear error messages on edge cases."""
+
+    def test_double_slash_shows_empty_component(self):
+        """Double slash gives clear empty component message."""
+        with pytest.raises(AddressError, match="empty"):
+            parse("project//brief-20251226-n1br")
+
+    def test_leading_slash_shows_empty_project(self):
+        """Leading slash gives clear empty project message."""
+        with pytest.raises(AddressError, match="empty.*project"):
+            parse("/brief-20251226-n1br")
+
+
+class TestParsedAddress:
+    """Tests for ParsedAddress dataclass."""
+
+    def test_parsed_address_equality(self):
+        """ParsedAddress instances with same values are equal."""
+        a = ParsedAddress(user="x", project="y", folio_id="z")
+        b = ParsedAddress(user="x", project="y", folio_id="z")
+        assert a == b
+
+    def test_parsed_address_inequality(self):
+        """ParsedAddress instances with different values are not equal."""
+        a = ParsedAddress(user="x", project="y", folio_id="z")
+        b = ParsedAddress(user="a", project="y", folio_id="z")
+        assert a != b
+
+    def test_parsed_address_none_defaults(self):
+        """ParsedAddress can have None for user and project."""
+        p = ParsedAddress(user=None, project=None, folio_id="brief-20251226-n1br")
+        assert p.user is None
+        assert p.project is None
+        assert p.folio_id == "brief-20251226-n1br"
+
+    def test_parsed_address_is_bare(self):
+        """is_bare property returns True when no project."""
+        bare = ParsedAddress(user=None, project=None, folio_id="brief-20251226-n1br")
+        qualified = ParsedAddress(user=None, project="x", folio_id="brief-20251226-n1br")
+        assert bare.is_bare is True
+        assert qualified.is_bare is False
+
+    def test_parsed_address_is_user_scoped(self):
+        """is_user_scoped property returns True when user present."""
+        bare = ParsedAddress(user=None, project=None, folio_id="x")
+        project = ParsedAddress(user=None, project="p", folio_id="x")
+        user = ParsedAddress(user="u", project="p", folio_id="x")
+        assert bare.is_user_scoped is False
+        assert project.is_user_scoped is False
+        assert user.is_user_scoped is True
