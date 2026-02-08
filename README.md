@@ -1,6 +1,8 @@
-# SpiritEngine
+# knurl
 
 Rock-solid primitives for content-addressable hashing, chain fingerprinting, and config diffing.
+
+Extracted from the SpiritEngine project.
 
 ## Modules
 

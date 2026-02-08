@@ -21,3 +21,7 @@ wheels/
 .hypothesis/
 .pytest_cache/
 *.pyc
+
+# Local development
+.claude/
+.skein/
