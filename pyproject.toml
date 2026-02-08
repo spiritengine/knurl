@@ -32,6 +32,7 @@ Issues = "https://github.com/spiritengine/knurl/issues"
 diff = ["jsonpatch>=1.32"]
 dev = [
     "pytest>=7.0",
+    "hypothesis>=6.0",
     "jsonpatch>=1.32",
 ]
 
