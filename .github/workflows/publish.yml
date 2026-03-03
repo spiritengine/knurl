@@ -49,3 +49,8 @@ jobs:
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # Uses OIDC trusted publisher. Requires trusted publisher configured at:
+          # https://pypi.org/manage/account/publishing/
+          # Settings: owner=spiritengine, repo=knurl, workflow=publish.yml, env=pypi
+          skip-existing: true
