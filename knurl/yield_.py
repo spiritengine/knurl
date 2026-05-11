@@ -53,7 +53,8 @@ def serialize(yield_data: dict) -> str:
         '{"result":"success","task_id":"task_001"}'
     """
     # canon.serialize returns bytes, we decode to string for storage
-    return canon.serialize(yield_data).decode('utf-8')
+    # accept_floats=True: yield data is not canonical-hash input; floats are allowed
+    return canon.serialize(yield_data, accept_floats=True).decode('utf-8')
 
 
 def deserialize(serialized: str) -> dict:

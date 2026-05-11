@@ -285,7 +285,9 @@ class TestPathologicalInputs:
         """Lone surrogate character causes encoding error."""
         # \ud800 is a lone high surrogate (invalid UTF-16)
         data = {'task_id': 'test', 'result': 'success', 'output': '\ud800'}
-        with pytest.raises((UnicodeEncodeError, ValueError)):
+        # CanonError raised by NFC normalization (lone surrogates can't be UTF-8 encoded)
+        from knurl.canon import CanonError
+        with pytest.raises((UnicodeEncodeError, ValueError, CanonError)):
             y.serialize(data)
 
 

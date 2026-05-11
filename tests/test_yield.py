@@ -729,14 +729,18 @@ class TestHypothesis:
         result=st.sampled_from(['success', 'failed', 'skipped']),
     )
     def test_any_valid_yield_roundtrips(self, task_id, result):
-        """Any valid yield round-trips correctly."""
+        """Any valid yield round-trips correctly (NFC-normalized inputs only)."""
         from knurl.yield_ import serialize, deserialize
+        import unicodedata
 
         # Skip strings that can't be UTF-8 encoded
         try:
             task_id.encode('utf-8')
         except UnicodeEncodeError:
             assume(False)
+
+        # NFC normalization is applied during serialization; skip non-NFC strings
+        assume(unicodedata.is_normalized("NFC", task_id))
 
         yield_data = {'task_id': task_id, 'result': result}
         restored = deserialize(serialize(yield_data))

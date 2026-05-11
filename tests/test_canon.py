@@ -172,12 +172,24 @@ class TestKeyOrdering:
         assert result == b'{"1":3,"10":1,"2":2}'
 
     def test_unicode_key_sorting_utf16(self, serialize):
-        """Unicode keys sort by UTF-16 code unit order (RFC 8785)."""
-        # For BMP characters, UTF-16 order matches Unicode code point order
-        obj = {"\u00e9": 1, "e": 2, "\u0065\u0301": 3}  # é, e, e+combining
+        """UTF-16 code unit sort: supplementary chars sort before high-BMP chars.
+
+        Supplementary characters (> U+FFFF) encode as surrogate pairs in UTF-16.
+        High surrogates (0xD800-0xDBFF) are numerically less than U+E000-U+FFFF,
+        so a supplementary char sorts BEFORE a high-BMP char in UTF-16 code unit
+        order, but AFTER it in Unicode code point order.
+        """
+        # U+E000 (private-use area, code point 57344)
+        # U+10000 (Linear B Syllabary, code point 65536)
+        # UTF-16: U+10000 -> [0xD800, 0xDC00]; U+E000 -> [0xE000]
+        # 0xD800 < 0xE000, so U+10000 sorts BEFORE U+E000 in UTF-16 order
+        obj = {"\uE000": 1, "\U00010000": 2}
         result = serialize(obj)
-        # "e" (U+0065) < "e\u0301" (U+0065 U+0301) < "é" (U+00E9)
-        assert result.index(b'"e"') < result.index(b'"\xc3\xa9"')
+        keys = list(json.loads(result).keys())
+        assert keys[0] == "\U00010000", (
+            "Supplementary char \\U00010000 should sort before \\uE000 "
+            "in UTF-16 code unit order"
+        )
 
     def test_case_sensitive_sorting(self, serialize):
         """Upper and lowercase letters sort by code point."""
@@ -195,15 +207,14 @@ class TestFloatHandling:
     """Float serialization edge cases."""
 
     def test_negative_zero_becomes_zero(self, serialize):
-        """RFC 8785: -0 must serialize as 0."""
-        result = serialize(-0.0)
-        # Should NOT contain minus sign
+        """RFC 8785: -0 must serialize as 0 when accept_floats=True."""
+        result = serialize(-0.0, accept_floats=True)
         assert result == b'0' or result == b'0.0'
         assert b'-' not in result
 
     def test_positive_zero(self, serialize):
-        """Positive zero serializes correctly."""
-        result = serialize(0.0)
+        """Positive zero serializes correctly when accept_floats=True."""
+        result = serialize(0.0, accept_floats=True)
         assert result in (b'0', b'0.0')
 
     def test_nan_raises_error(self, serialize, CanonError):
@@ -235,49 +246,45 @@ class TestFloatHandling:
             serialize([1, 2, float('inf'), 4])
 
     def test_simple_floats(self, serialize):
-        """Simple float values serialize correctly."""
-        assert serialize(1.5) == b'1.5'
-        assert serialize(0.5) == b'0.5'
-        assert serialize(123.456) == b'123.456'
+        """Simple float values serialize correctly when accept_floats=True."""
+        assert serialize(1.5, accept_floats=True) == b'1.5'
+        assert serialize(0.5, accept_floats=True) == b'0.5'
+        assert serialize(123.456, accept_floats=True) == b'123.456'
 
     def test_float_precision_reproducibility(self, serialize):
-        """Float precision is consistent across calls."""
+        """Float precision is consistent across calls (accept_floats=True)."""
         val = 0.1 + 0.2  # Known to be 0.30000000000000004
-        result1 = serialize(val)
-        result2 = serialize(val)
+        result1 = serialize(val, accept_floats=True)
+        result2 = serialize(val, accept_floats=True)
         assert result1 == result2
 
     def test_scientific_notation_consistency(self, serialize):
-        """Large/small floats consistently use or avoid scientific notation."""
+        """Large/small floats consistently use or avoid scientific notation (accept_floats=True)."""
         large = 1e20
         small = 1e-10
 
-        result_large = serialize(large)
-        result_small = serialize(small)
+        result_large = serialize(large, accept_floats=True)
+        result_small = serialize(small, accept_floats=True)
 
-        # Results should be consistent (we don't mandate format, just consistency)
-        assert serialize(large) == result_large
-        assert serialize(small) == result_small
+        assert serialize(large, accept_floats=True) == result_large
+        assert serialize(small, accept_floats=True) == result_small
 
     def test_float_vs_integer_distinction(self, serialize):
-        """Float and integer serialize differently when values differ."""
-        # 1 and 1.0 may or may not produce different output depending on impl
-        # But 1 and 1.5 must differ
-        assert serialize(1) != serialize(1.5)
+        """Float and integer serialize differently when values differ (accept_floats=True for float)."""
+        assert serialize(1) != serialize(1.5, accept_floats=True)
 
     def test_very_small_float(self, serialize):
-        """Very small floats serialize without error."""
+        """Very small floats serialize without error when accept_floats=True."""
         tiny = 1e-300
-        result = serialize(tiny)
+        result = serialize(tiny, accept_floats=True)
         assert isinstance(result, bytes)
-        # Should round-trip
         parsed = json.loads(result)
         assert parsed == tiny or abs(parsed - tiny) / tiny < 1e-10
 
     def test_very_large_float(self, serialize):
-        """Very large floats serialize without error."""
+        """Very large floats serialize without error when accept_floats=True."""
         huge = 1e300
-        result = serialize(huge)
+        result = serialize(huge, accept_floats=True)
         assert isinstance(result, bytes)
         parsed = json.loads(result)
         assert parsed == huge or abs(parsed - huge) / huge < 1e-10
@@ -355,25 +362,22 @@ class TestStringHandling:
         assert parsed == "😀"
 
     def test_unicode_combining_characters(self, serialize):
-        """Combining characters serialize correctly."""
-        # e + combining acute = é (two code points)
+        """Combining characters are NFC-normalized before serialization."""
+        # e + combining acute (NFD) normalizes to precomposed é (NFC, U+00E9)
         combining = "e\u0301"
         result = serialize(combining)
         parsed = json.loads(result)
-        assert parsed == combining
+        assert parsed == "\u00e9"
 
-    def test_unicode_normalization_preserved(self, serialize):
-        """Different Unicode normalizations produce different output."""
-        # NFC: é as single code point
-        nfc = "\u00e9"
-        # NFD: e + combining acute
-        nfd = "e\u0301"
+    def test_nfc_normalization_idempotent(self, serialize):
+        """NFC and NFD inputs produce identical canonical output (both normalize to NFC)."""
+        nfc = "\u00e9"   # precomposed é
+        nfd = "e\u0301"  # e + combining acute accent
 
         result_nfc = serialize(nfc)
         result_nfd = serialize(nfd)
 
-        # These are different strings, should produce different canonical output
-        assert result_nfc != result_nfd
+        assert result_nfc == result_nfd
 
     def test_lone_surrogate_raises_error(self, serialize, CanonError):
         """Lone surrogates must raise an error (RFC 8785)."""
@@ -444,13 +448,11 @@ class TestTypeHandling:
         assert serialize(None) == b'null'
 
     def test_int_vs_float_difference(self, serialize):
-        """Integer and float may serialize differently."""
+        """Integer and float may serialize differently (accept_floats=True for float)."""
         int_result = serialize(1)
-        float_result = serialize(1.0)
-        # They might be the same (b'1') or different (b'1' vs b'1.0')
-        # Both are valid, but they should be consistent
+        float_result = serialize(1.0, accept_floats=True)
         assert serialize(1) == int_result
-        assert serialize(1.0) == float_result
+        assert serialize(1.0, accept_floats=True) == float_result
 
     def test_bool_not_int(self, serialize):
         """Boolean is NOT treated as integer."""
@@ -468,16 +470,20 @@ class TestTypeHandling:
 
     def test_list_of_primitives(self, serialize):
         """List of various primitives."""
-        obj = [1, "two", True, None, 3.5]
+        # Without floats (default behavior)
+        obj = [1, "two", True, None]
         result = serialize(obj)
-        assert result == b'[1,"two",true,null,3.5]'
+        assert result == b'[1,"two",true,null]'
+        # With floats
+        obj_with_float = [1, "two", True, None, 3.5]
+        result_with_float = serialize(obj_with_float, accept_floats=True)
+        assert result_with_float == b'[1,"two",true,null,3.5]'
 
     def test_mixed_nested_structure(self, serialize):
-        """Complex nested structure with mixed types."""
+        """Complex nested structure with mixed types (no floats by default)."""
         obj = {
             "string": "hello",
             "number": 42,
-            "float": 3.14,
             "bool": True,
             "null": None,
             "list": [1, 2, 3],
@@ -485,12 +491,19 @@ class TestTypeHandling:
         }
         result = serialize(obj)
         assert isinstance(result, bytes)
-        # Verify round-trip
         parsed = json.loads(result)
         assert parsed["string"] == "hello"
         assert parsed["number"] == 42
         assert parsed["bool"] is True
         assert parsed["null"] is None
+
+    def test_mixed_nested_structure_with_floats(self, serialize):
+        """Mixed structure with floats when accept_floats=True."""
+        obj = {"float": 3.14, "nested": {"x": 2.71}}
+        result = serialize(obj, accept_floats=True)
+        assert isinstance(result, bytes)
+        parsed = json.loads(result)
+        assert abs(parsed["float"] - 3.14) < 1e-10
 
 
 # =============================================================================
@@ -638,10 +651,15 @@ class TestRoundTrip:
 
     def test_simple_round_trip(self, serialize):
         """Simple values round-trip correctly."""
-        for value in [42, 3.14, "hello", True, False, None]:
+        for value in [42, "hello", True, False, None]:
             result = serialize(value)
             parsed = json.loads(result)
             assert parsed == value
+        # Floats require accept_floats=True
+        for value in [3.14]:
+            result = serialize(value, accept_floats=True)
+            parsed = json.loads(result)
+            assert abs(parsed - value) < 1e-10
 
     def test_list_round_trip(self, serialize):
         """Lists round-trip correctly."""
@@ -771,10 +789,10 @@ class TestHypothesis:
 
     @given(st.floats(allow_nan=False, allow_infinity=False))
     def test_float_determinism(self, f):
-        """Any valid float serializes deterministically."""
+        """Any valid float serializes deterministically with accept_floats=True."""
         from knurl.canon import serialize
-        result1 = serialize(f)
-        result2 = serialize(f)
+        result1 = serialize(f, accept_floats=True)
+        result2 = serialize(f, accept_floats=True)
         assert result1 == result2
 
     @given(st.text())
@@ -795,12 +813,16 @@ class TestHypothesis:
     def test_dict_determinism(self, d):
         """Any dict serializes deterministically."""
         from knurl.canon import serialize
-        # Skip strings with lone surrogates in keys
+        import unicodedata as _ud
+        # Skip lone surrogates and keys that would collide after NFC normalization
+        nfc_keys = []
         for key in d:
             try:
                 key.encode('utf-8')
             except UnicodeEncodeError:
                 assume(False)
+            nfc_keys.append(_ud.normalize("NFC", key))
+        assume(len(nfc_keys) == len(set(nfc_keys)))
 
         result1 = serialize(d)
         result2 = serialize(d)
@@ -843,11 +865,24 @@ class TestHypothesis:
         assume(check_strings(obj))
 
         from knurl.canon import serialize
-        result = serialize(obj)
+        import unicodedata as _ud
+
+        # Skip non-NFC strings: they normalize and may cause key collisions
+        def all_nfc(o):
+            if isinstance(o, str):
+                return _ud.is_normalized("NFC", o)
+            elif isinstance(o, dict):
+                return all(all_nfc(k) and all_nfc(v) for k, v in o.items())
+            elif isinstance(o, list):
+                return all(all_nfc(i) for i in o)
+            return True
+
+        assume(all_nfc(obj))
+
+        result = serialize(obj, accept_floats=True)
         parsed = json.loads(result)
         # Note: int/float distinction might be lost in round-trip
-        # We just verify it's valid JSON
-        assert result == serialize(parsed)
+        assert result == serialize(parsed, accept_floats=True)
 
 
 # =============================================================================
@@ -882,3 +917,290 @@ class TestCrossValidation:
         result = serialize(obj)
         expected = json.dumps(obj, sort_keys=True, separators=(',', ':')).encode('utf-8')
         assert result == expected
+
+
+# =============================================================================
+# TestFloatRejection - Float rejection by default
+# =============================================================================
+
+class TestFloatRejection:
+    """Floats are rejected by default; accept_floats=True is required for float use."""
+
+    def test_float_rejected_by_default(self, serialize, CanonError):
+        """Floats raise CanonError by default."""
+        with pytest.raises(CanonError, match="[Ff]loat"):
+            serialize(1.5)
+
+    def test_float_in_dict_rejected_by_default(self, serialize, CanonError):
+        """Float values nested in dicts are rejected by default."""
+        with pytest.raises(CanonError):
+            serialize({"x": 3.14})
+
+    def test_float_in_list_rejected_by_default(self, serialize, CanonError):
+        """Float values in lists are rejected by default."""
+        with pytest.raises(CanonError):
+            serialize([1, 2, 3.5])
+
+    def test_nan_always_rejected(self, serialize, CanonError):
+        """NaN is rejected even with accept_floats=True."""
+        with pytest.raises(CanonError, match="[Nn]aN"):
+            serialize(float('nan'), accept_floats=True)
+
+    def test_infinity_always_rejected(self, serialize, CanonError):
+        """Infinity is rejected even with accept_floats=True."""
+        with pytest.raises(CanonError, match="[Ii]nf"):
+            serialize(float('inf'), accept_floats=True)
+
+    def test_negative_infinity_always_rejected(self, serialize, CanonError):
+        """Negative infinity is rejected even with accept_floats=True."""
+        with pytest.raises(CanonError, match="[Ii]nf"):
+            serialize(float('-inf'), accept_floats=True)
+
+    def test_accept_floats_enables_floats(self, serialize):
+        """accept_floats=True permits float values."""
+        assert serialize(1.5, accept_floats=True) == b'1.5'
+        assert serialize({"pi": 3.14}, accept_floats=True) == b'{"pi":3.14}'
+
+    def test_accept_floats_false_is_default(self, serialize, CanonError):
+        """Calling serialize() with no flags rejects floats."""
+        with pytest.raises(CanonError):
+            serialize(0.5)
+
+
+# =============================================================================
+# TestNFCNormalization - NFC Unicode normalization
+# =============================================================================
+
+class TestNFCNormalization:
+    """All string values are NFC-normalized before serialization."""
+
+    def test_nfc_and_nfd_produce_same_bytes(self, serialize):
+        """NFD and NFC input strings produce identical canonical bytes."""
+        nfc = "é"    # precomposed é
+        nfd = "é"   # e + combining acute accent
+        assert serialize(nfc) == serialize(nfd)
+
+    def test_nfc_applied_to_string_values(self, serialize):
+        """String leaf values are NFC-normalized."""
+        nfd_input = {"key": "é"}   # NFD é in value
+        nfc_input = {"key": "é"}    # NFC é in value
+        assert serialize(nfd_input) == serialize(nfc_input)
+
+    def test_nfc_applied_to_keys(self, serialize):
+        """Object keys are NFC-normalized."""
+        nfd_key = {"é": 1}    # NFD é as key
+        nfc_key = {"é": 1}     # NFC é as key
+        assert serialize(nfd_key) == serialize(nfc_key)
+
+    def test_nfc_applied_in_nested_structures(self, serialize):
+        """NFC normalization applies recursively in nested structures."""
+        nfd = {"a": {"b": "é"}}
+        nfc = {"a": {"b": "é"}}
+        assert serialize(nfd) == serialize(nfc)
+
+    def test_nfc_applied_in_list_values(self, serialize):
+        """NFC normalization applies to strings inside lists."""
+        nfd = ["é", "café"]
+        nfc = ["é", "café"]
+        assert serialize(nfd) == serialize(nfc)
+
+    def test_nfc_already_normalized_is_idempotent(self, serialize):
+        """Strings already in NFC are unchanged."""
+        nfc = "é"  # precomposed é, already NFC
+        result = serialize(nfc)
+        # Round-trip: parsed value should be the same NFC string
+        assert json.loads(result) == nfc
+
+    def test_nfc_duplicate_key_after_normalization_rejected(self, serialize, CanonError):
+        """Keys that become identical after NFC normalization are rejected."""
+        # "é" and "é" both normalize to "é"
+        obj = {"é": 1, "é": 2}
+        with pytest.raises(CanonError, match="[Dd]uplicate"):
+            serialize(obj)
+
+    def test_nfc_output_is_valid_utf8(self, serialize):
+        """Canonical bytes are always valid UTF-8."""
+        # Japanese characters — already NFC
+        result = serialize({"greeting": "こんにちは"})
+        result.decode('utf-8')  # must not raise
+
+    def test_lone_surrogate_rejected(self, serialize, CanonError):
+        """Strings with lone surrogates are rejected (cannot be UTF-8 encoded)."""
+        try:
+            lone = "\ud800"
+            with pytest.raises(CanonError):
+                serialize(lone)
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            pytest.skip("Python rejected lone surrogate at string creation")
+
+
+# =============================================================================
+# TestConformanceVectors - Deterministic byte vectors for CI drift detection
+# =============================================================================
+
+class TestConformanceVectors:
+    """Hard-coded input→bytes test vectors.
+
+    These vectors verify that the canonical serialization produces bit-identical
+    output across Python versions and implementation changes. Any drift is a
+    breaking change to the wire format and must be treated as such.
+
+    Reject vectors verify that specific inputs raise CanonError.
+
+    Hex values computed from the SKEIN canonical serialization spec
+    (finding-20260511-pqxy): RFC 8785 + mandatory NFC normalization.
+    """
+
+    # Positive vectors: (description, input, expected_hex)
+    POSITIVE_VECTORS = [
+        (
+            "ASCII string pair",
+            {"hello": "world"},
+            "7b2268656c6c6f223a22776f726c64227d",
+        ),
+        (
+            "Two-key sorted dict",
+            {"b": 2, "a": 1},
+            "7b2261223a312c2262223a327d",
+        ),
+        (
+            "Empty object",
+            {},
+            "7b7d",
+        ),
+        (
+            "Empty array",
+            [],
+            "5b5d",
+        ),
+        (
+            "Booleans and null (sorted keys a < b < c)",
+            {"c": True, "a": False, "b": None},
+            "7b2261223a66616c73652c2262223a6e756c6c2c2263223a747275657d",
+        ),
+        (
+            "Large integer beyond JS safe range (2^53+1)",
+            {"n": 9007199254740993},
+            "7b226e223a393030373139393235343734303939337d",
+        ),
+        (
+            "Microsecond timestamp (SKEIN created_at field)",
+            {"created_at": 1746915264123456},
+            "7b22637265617465645f6174223a313734363931353236343132333435367d",
+        ),
+        (
+            "Deeply nested structure",
+            {"a": {"b": {"c": 1}}},
+            "7b2261223a7b2262223a7b2263223a317d7d7d",
+        ),
+        (
+            "Mixed-type array (integers, booleans, null, string)",
+            [1, True, False, None, "ok"],
+            "5b312c747275652c66616c73652c6e756c6c2c226f6b225d",
+        ),
+        (
+            "NFC key precomposed (café with é=U+00E9)",
+            # Key "café" where é is precomposed U+00E9 (already NFC)
+            {"café": 1},
+            "7b22636166c3a9223a317d",
+        ),
+        (
+            "NFD key normalized to NFC (e + combining acute -> é)",
+            # Key is NFD: e (U+0065) + combining acute (U+0301)
+            # After NFC normalization: é (U+00E9)
+            # Output must equal the NFC key vector above
+            {"é": 1},
+            "7b22c3a9223a317d",
+        ),
+    ]
+
+    # Float vectors (accept_floats=True required)
+    FLOAT_VECTORS = [
+        (
+            "Negative zero normalized to positive zero",
+            -0.0,
+            "302e30",  # b'0.0' — Python json.dumps(0.0) = '0.0'
+        ),
+        (
+            "Simple float",
+            1.5,
+            "312e35",  # b'1.5'
+        ),
+    ]
+
+    # Reject vectors: (description, input, accept_floats)
+    REJECT_VECTORS = [
+        ("NaN always rejected",             float('nan'),        True),
+        ("Positive infinity always rejected", float('inf'),       True),
+        ("Negative infinity always rejected", float('-inf'),      True),
+        ("Float rejected by default",        1.5,                False),
+        ("Float in dict rejected by default", {"x": 3.14},       False),
+        ("Non-string dict key rejected",     {1: "one"},         False),
+        ("None dict key rejected",           {None: "v"},        False),
+    ]
+
+    def test_positive_vectors(self, serialize):
+        """All positive vectors produce the expected canonical bytes."""
+        for desc, input_val, expected_hex in self.POSITIVE_VECTORS:
+            result = serialize(input_val)
+            expected = bytes.fromhex(expected_hex)
+            assert result == expected, (
+                f"Vector '{desc}' failed:\n"
+                f"  got:      {result.hex()}\n"
+                f"  expected: {expected_hex}"
+            )
+
+    def test_float_vectors(self, serialize):
+        """Float vectors produce expected bytes when accept_floats=True."""
+        for desc, input_val, expected_hex in self.FLOAT_VECTORS:
+            result = serialize(input_val, accept_floats=True)
+            expected = bytes.fromhex(expected_hex)
+            assert result == expected, (
+                f"Float vector '{desc}' failed:\n"
+                f"  got:      {result.hex()}\n"
+                f"  expected: {expected_hex}"
+            )
+
+    def test_reject_vectors(self, serialize, CanonError):
+        """All reject vectors raise CanonError."""
+        for desc, input_val, accept_floats in self.REJECT_VECTORS:
+            with pytest.raises(CanonError):
+                serialize(input_val, accept_floats=accept_floats)
+
+    def test_nfc_and_nfd_produce_same_hex(self, serialize):
+        """NFD and NFC variants of the same key produce identical canonical bytes."""
+        nfc_result = serialize({"é": 1})
+        nfd_result = serialize({"é": 1})
+        assert nfc_result == nfd_result
+        assert nfc_result.hex() == "7b22c3a9223a317d"
+
+    def test_depth_limit_enforced(self, serialize, CanonError):
+        """Nesting beyond MAX_DEPTH (500) raises CanonError."""
+        from knurl.canon import MAX_DEPTH
+        # Build structure with depth = MAX_DEPTH + 1
+        obj = {}
+        current = obj
+        for _ in range(MAX_DEPTH + 1):
+            inner = {}
+            current["x"] = inner
+            current = inner
+        with pytest.raises(CanonError, match="[Dd]epth"):
+            serialize(obj)
+
+    def test_circular_reference_rejected(self, serialize, CanonError):
+        """Circular references raise CanonError."""
+        obj = {"a": 1}
+        obj["self"] = obj
+        with pytest.raises((CanonError, ValueError, RecursionError)):
+            serialize(obj)
+
+    def test_utf16_sort_diverges_from_code_point_order(self, serialize):
+        """Verify UTF-16 sort order for supplementary vs high-BMP characters."""
+        # U+10000 has UTF-16 high surrogate 0xD800 < U+E000 = 0xE000
+        # So in UTF-16 code unit order: U+10000 sorts BEFORE U+E000
+        # (opposite of code point order: 0x10000 > 0xE000)
+        obj = {"": 1, "\U00010000": 2}
+        result = serialize(obj)
+        keys = list(json.loads(result).keys())
+        assert keys[0] == "\U00010000"
+        assert keys[1] == ""

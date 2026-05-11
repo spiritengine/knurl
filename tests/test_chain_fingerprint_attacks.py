@@ -313,27 +313,20 @@ class TestCanonicalJSONEdgeCases:
         assert ' ' not in canonical
 
     def test_float_representation(self):
-        """Float representation consistency."""
-        config1 = {"val": 1.0}
-        config2 = {"val": 1.00000}
-
-        fp1 = fp(config1)
-        fp2 = fp(config2)
-
-        # Python JSON should handle this consistently
-        assert fp1 == fp2
+        """Floats are rejected from canonical chain fingerprinting."""
+        with pytest.raises(ChainError):
+            fp({"val": 1.0})
+        with pytest.raises(ChainError):
+            fp({"val": 1.00000})
 
     def test_integer_vs_float(self):
-        """Integer vs float - document behavior."""
-        config1 = {"val": 1}
-        config2 = {"val": 1.0}
-
-        fp1 = fp(config1)
-        fp2 = fp(config2)
-
-        # Document: JSON serializes 1 and 1.0 differently
-        # 1 -> "1", 1.0 -> "1.0"
-        # So fingerprints will differ
+        """Float rejected; integer succeeds. No ambiguity in canonical form."""
+        # Integer works
+        fp1 = fp({"val": 1})
+        assert isinstance(fp1, str)
+        # Float rejected
+        with pytest.raises(ChainError):
+            fp({"val": 1.0})
 
     def test_boolean_vs_integer(self):
         """Boolean vs integer."""
