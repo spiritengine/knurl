@@ -10,7 +10,7 @@
 # - knurl.diverge: Divergence detection
 
 from .canon import serialize, CanonError
-from .hash import compute, verify, HashError
+from .hash import compute, compute_bytes, compute_file, compute_tree, verify, HashError
 from .address import parse, construct, validate, ParsedAddress, AddressError
 from .chain import fingerprint, fingerprint_step, ChainError
 from . import yield_

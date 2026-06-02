@@ -6,7 +6,15 @@ produces the exact same output. Suitable for hashing configurations and
 other data structures where byte-level reproducibility matters.
 
 Based on RFC 8785 (JSON Canonicalization Scheme) principles:
-- Dict keys sorted lexicographically (ASCII/UTF-16 code unit order)
+- Dict keys sorted lexicographically by Unicode code point (Python's native
+  str ordering). Note this diverges from RFC 8785, which sorts by UTF-16 code
+  unit, for supplementary-plane characters (code points above U+FFFF, e.g.
+  emoji): the surrogate-pair lead unit 0xD800 sorts below 0xFFFF in UTF-16 but
+  the code point sorts above it. The output is fully self-consistent (Python
+  always uses code-point order), so hashing is deterministic; it is only the
+  ordering of certain non-BMP keys that would differ from a strict RFC 8785
+  implementation. This is fine for internal hashing, not for cross-language
+  interchange against a strict JCS verifier.
 - No whitespace between tokens
 - -0.0 normalized to 0.0
 - NaN/Infinity raise errors
@@ -54,8 +62,10 @@ def _validate(obj: Any, seen: set[int], depth: int = 0) -> None:
     if depth > MAX_DEPTH:
         raise CanonError(f"Maximum nesting depth ({MAX_DEPTH}) exceeded")
 
-    # Check for circular references in containers
-    if isinstance(obj, (dict, list)):
+    # Check for circular references in containers. Tuples are included because
+    # json.dumps serializes them as arrays, so without this a deeply nested
+    # tuple would bypass MAX_DEPTH and leak a raw RecursionError.
+    if isinstance(obj, (dict, list, tuple)):
         obj_id = id(obj)
         if obj_id in seen:
             raise CanonError("Circular reference detected")
@@ -68,7 +78,7 @@ def _validate(obj: Any, seen: set[int], depth: int = 0) -> None:
                         f"Dict keys must be strings for canonical JSON, got {type(key).__name__}: {key!r}"
                     )
                 _validate(value, seen, depth + 1)
-        else:  # list
+        else:  # list or tuple
             for item in obj:
                 _validate(item, seen, depth + 1)
 
@@ -96,7 +106,7 @@ def _normalize(obj: Any) -> Any:
     if isinstance(obj, dict):
         return {key: _normalize(value) for key, value in obj.items()}
 
-    elif isinstance(obj, list):
+    elif isinstance(obj, (list, tuple)):
         return [_normalize(item) for item in obj]
 
     elif isinstance(obj, float):
@@ -148,17 +158,20 @@ def serialize(obj: Any) -> bytes:
     # Normalize values (convert -0.0 to 0.0)
     normalized = _normalize(obj)
 
-    # Serialize with canonical settings
+    # Serialize with canonical settings. The encode() is inside the try because
+    # ensure_ascii=False keeps any lone surrogate (from a non-UTF-8-derived key)
+    # in the string, and encoding it to UTF-8 then raises UnicodeEncodeError -
+    # which we wrap as CanonError rather than letting the raw error escape.
     try:
         json_str = json.dumps(
             normalized,
-            sort_keys=True,        # Lexicographic key ordering
+            sort_keys=True,        # Lexicographic key ordering (code point order)
             separators=(',', ':'), # No whitespace
             ensure_ascii=False,    # Allow UTF-8 characters directly
             allow_nan=False,       # Belt-and-suspenders: reject NaN/Inf at json level too
         )
+        return json_str.encode('utf-8')
     except ValueError as e:
-        # json.dumps raises ValueError for NaN/Infinity when allow_nan=False
+        # ValueError covers NaN/Infinity (allow_nan=False) and UnicodeEncodeError
+        # (a ValueError subclass) from encoding a lone surrogate.
         raise CanonError(str(e)) from e
-
-    return json_str.encode('utf-8')

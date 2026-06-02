@@ -282,10 +282,14 @@ class TestPathologicalInputs:
         assert restored['output'] == '\x00\x01\x02\x03'
 
     def test_lone_surrogate_rejected(self):
-        """Lone surrogate character causes encoding error."""
+        """Lone surrogate character is rejected.
+
+        canon now wraps the UTF-8 encode failure as CanonError instead of
+        letting the raw UnicodeEncodeError escape, so accept either.
+        """
         # \ud800 is a lone high surrogate (invalid UTF-16)
         data = {'task_id': 'test', 'result': 'success', 'output': '\ud800'}
-        with pytest.raises((UnicodeEncodeError, ValueError)):
+        with pytest.raises((UnicodeEncodeError, ValueError, CanonError)):
             y.serialize(data)
 
 

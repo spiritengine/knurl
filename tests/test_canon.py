@@ -882,3 +882,33 @@ class TestCrossValidation:
         result = serialize(obj)
         expected = json.dumps(obj, sort_keys=True, separators=(',', ':')).encode('utf-8')
         assert result == expected
+
+
+class TestSurrogateKeyWrapping:
+    """A lone surrogate in a key must surface as CanonError, not a raw
+    UnicodeEncodeError leaking past the wrapper (it arises from non-UTF-8
+    filesystem names reaching serialization)."""
+
+    def test_surrogate_key_raises_canon_error(self, serialize, CanonError):
+        with pytest.raises(CanonError):
+            serialize({"\udcff": "value"})
+
+    def test_surrogate_value_raises_canon_error(self, serialize, CanonError):
+        with pytest.raises(CanonError):
+            serialize({"k": "\udcff"})
+
+
+class TestTupleDepth:
+    """json.dumps serializes tuples as arrays, so the depth/circular guards
+    must cover tuples too - otherwise a deeply nested tuple leaks a raw
+    RecursionError instead of CanonError."""
+
+    def test_deeply_nested_tuple_raises_canon_error(self, serialize, CanonError):
+        obj = 0
+        for _ in range(2000):  # well past MAX_DEPTH
+            obj = (obj,)
+        with pytest.raises(CanonError):
+            serialize(obj)
+
+    def test_shallow_tuple_serializes_as_array(self, serialize):
+        assert serialize((1, 2, 3)) == b"[1,2,3]"

@@ -291,8 +291,13 @@ class TestGremlinAttacks:
         assert verify("wrong", forged) is False  # Wrong content fails
 
     def test_surrogate_pair_rejected(self):
-        """Lone surrogate (invalid unicode) is rejected at encode time."""
-        with pytest.raises(UnicodeEncodeError):
+        """Lone surrogate (invalid unicode) is rejected as HashError.
+
+        compute() now wraps the UTF-8 encode failure as HashError to match its
+        documented contract (and the tree path), rather than leaking a raw
+        UnicodeEncodeError.
+        """
+        with pytest.raises(HashError):
             compute("\ud800")  # Lone surrogate
 
     def test_very_long_prefix_allowed(self):

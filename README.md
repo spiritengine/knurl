@@ -31,7 +31,10 @@ from knurl import canon, hash, chain, diverge
 canonical_bytes = canon.serialize({"b": 1, "a": 2})  # b'{"a":2,"b":1}'
 
 # Content-addressable hashing
-content_hash = hash.compute("hello world")  # 'sha256:...'
+content_hash = hash.compute("hello world")        # 'sha256:...' (strings)
+blob_hash = hash.compute_bytes(b"\x00\x01\x02")   # 'sha256:...' (raw bytes)
+file_hash = hash.compute_file("video.mp4")        # 'sha256:...' (streamed, multi-GB safe)
+tree_hash = hash.compute_tree("mirror/")          # 'sha256:...' (reproducible directory digest)
 
 # Chain fingerprinting
 fingerprints = chain.fingerprint([config1, config2, config3])
