@@ -6,7 +6,11 @@ Extracted from the SpiritEngine project.
 
 ## Modules
 
-- **canon** - Canonical JSON serialization (RFC 8785 inspired)
+- **canon** - Canonical JSON serialization (RFC 8785 + mandatory Unicode NFC
+  normalization). Deterministic, byte-identical across implementations and Python
+  versions. Floats are rejected by default (pass `accept_floats=True` for
+  non-hash use); integers keep their exact digits; NaN/Infinity, unassigned code
+  points, and duplicate-after-NFC keys raise `CanonError`.
 - **hash** - Content-addressable hashing
 - **chain** - Merkle-like chain fingerprinting
 - **diverge** - Divergence detection for fingerprint chains

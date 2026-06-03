@@ -34,7 +34,7 @@ VALID_RESULTS = {'success', 'failed', 'skipped'}
 def serialize(yield_data: dict) -> str:
     """Serialize yield data to canonical JSON string.
 
-    Uses ledger.canon for deterministic serialization where the same
+    Uses knurl.canon for deterministic serialization where the same
     input always produces the exact same output.
 
     Args:

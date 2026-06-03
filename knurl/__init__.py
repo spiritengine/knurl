@@ -9,7 +9,13 @@
 # - knurl.chain: Chain fingerprinting
 # - knurl.diverge: Divergence detection
 
-from .canon import serialize, CanonError
+from .canon import (
+    serialize,
+    CanonError,
+    MAX_DEPTH,
+    MAX_INT_DIGITS,
+    UNICODE_VERSION,
+)
 from .hash import compute, compute_bytes, compute_file, compute_tree, verify, HashError
 from .address import parse, construct, validate, ParsedAddress, AddressError
 from .chain import fingerprint, fingerprint_step, ChainError

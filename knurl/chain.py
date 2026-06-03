@@ -32,11 +32,13 @@ Key properties:
     - Cascade invalidation: changing step N invalidates fingerprints N, N+1, N+2, ...
 
 Note on Unicode:
-    Configs are hashed as raw bytes without Unicode normalization. This means
-    visually identical strings with different Unicode representations (e.g.,
-    'café' as U+00E9 vs 'café' as e + U+0301 combining accent) will produce
-    different fingerprints. If your configs may contain text from varying
-    sources, normalize to a consistent form (e.g., NFC) before fingerprinting.
+    Configs are fingerprinted through knurl.canon (SKEIN canonical
+    serialization), which NFC-normalizes all string keys and values. So
+    visually identical strings with different Unicode representations (e.g.
+    'café' as U+00E9 vs 'café' as e + U+0301 combining accent) normalize to
+    the same form and produce the SAME fingerprint. canon also rejects floats,
+    NaN/Infinity, and code points unassigned in the running Unicode database;
+    such a config raises ChainError rather than being fingerprinted.
 """
 
 from __future__ import annotations
