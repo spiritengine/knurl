@@ -38,11 +38,17 @@ class CanonError(Exception):
     - NaN or Infinity floats
     - Floats when accept_floats=False (the default)
     - Circular references
-    - Non-JSON-serializable types (bytes, sets, custom objects)
     - Excessive nesting depth (> MAX_DEPTH)
     - Non-string dict keys
     - Duplicate keys after NFC normalization
     - Strings containing lone Unicode surrogates
+
+    Note: a genuinely non-JSON type (bytes, set, Decimal, complex, a custom
+    object) raises TypeError from json.dumps, NOT CanonError — that is a caller
+    type error, not a canonicalization-domain rejection, and serialize()'s own
+    docstring documents it as TypeError. Callers that must catch both should
+    catch (CanonError, TypeError). (Such types never arise from json.loads, so
+    they are unreachable from the JSON input domain anyway.)
     """
     pass
 
@@ -240,6 +246,13 @@ def serialize(obj: Any, *, accept_floats: bool = False) -> bytes:
     # covered defensively: ensure_ascii=False would keep any lone surrogate in the
     # string, and encoding it to UTF-8 raises UnicodeEncodeError (a ValueError) —
     # wrapped as CanonError rather than letting the raw error escape.
+    #
+    # The validate-then-normalize design assumes inputs are plain builtin
+    # containers, as produced by json.loads. A hostile dict/list SUBCLASS whose
+    # items()/__iter__ yields clean data on the validate pass and dirty data on
+    # the normalize pass could smuggle a float or non-string key into the output;
+    # that is out of scope — SKEIN canonicalizes json.loads output, never
+    # arbitrary subclass instances.
     try:
         _validate(obj, set(), accept_floats=accept_floats)
         normalized = _normalize(obj)

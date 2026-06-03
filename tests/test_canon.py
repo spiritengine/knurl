@@ -1205,7 +1205,7 @@ class TestConformanceVectors:
         assert nfc_result.hex() == "7b22c3a9223a317d"
 
     def test_depth_limit_enforced(self, serialize, CanonError):
-        """Nesting beyond MAX_DEPTH (500) raises CanonError."""
+        """Nesting beyond MAX_DEPTH raises CanonError."""
         from knurl.canon import MAX_DEPTH
         # Build structure with depth = MAX_DEPTH + 1
         obj = {}
