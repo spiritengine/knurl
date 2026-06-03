@@ -31,12 +31,28 @@ Duplicate-key note: json.loads() silently coalesces duplicate keys before this
 function sees them. Callers that need to reject duplicate-keyed JSON strings
 should parse with json.loads(s, object_pairs_hook=detect_duplicates) before
 calling serialize().
+
+Cross-version/cross-language parity rests on two environment assumptions that an
+operator MUST keep aligned across all nodes that compare hashes:
+- Unicode database version. NFC normalization is computed by the interpreter's
+  bundled unicodedata. The Unicode stability policy guarantees the normalization
+  of an *assigned* character never changes, but a code point that is unassigned
+  in one node's UCD and assigned (with composition/combining data) in another's
+  can normalize differently — so a string containing such a code point may hash
+  differently across Python versions (e.g. 3.8 ships UCD 12.1, 3.12 ships 15.0).
+  For ASCII identifiers and timestamps this is moot; for arbitrary user Unicode
+  the spec must pin a UCD version (or reject code points unassigned in it).
+- int<->str digit limit. CPython 3.11+ caps int<->str conversion (default 4300
+  digits, == MAX_INT_DIGITS). serialize() refuses to run if the process has
+  LOWERED that cap below MAX_INT_DIGITS, because json.dumps would then reject
+  some integers that other nodes accept (see _require_int_str_limit).
 """
 
 from __future__ import annotations
 
 import json
 import math
+import sys
 import unicodedata
 from typing import Any
 
@@ -89,7 +105,31 @@ MAX_INT_DIGITS = 4300
 # Precomputed once: an integer has more than MAX_INT_DIGITS digits iff its
 # absolute value is >= 10**MAX_INT_DIGITS. Comparing against this avoids calling
 # str() on a giant int — the very superlinear operation the limit exists to bound.
+# (This is integer arithmetic, not int<->str, so it is unaffected by the cap below.)
 _MAX_INT_MAGNITUDE = 10 ** MAX_INT_DIGITS
+
+
+def _require_int_str_limit() -> None:
+    """Refuse to serialize if the interpreter's int<->str cap is below MAX_INT_DIGITS.
+
+    _validate bounds integers to MAX_INT_DIGITS, so json.dumps only ever renders
+    integers within the limit. But CPython 3.11+ lets a process LOWER its int<->str
+    digit cap (sys.set_int_max_str_digits) below MAX_INT_DIGITS; json.dumps would
+    then raise on integers in (cap, MAX_INT_DIGITS] that nodes at the default cap
+    serialize fine — a silent cross-environment hash split. Detect that and fail
+    loudly instead. A cap of 0 means "unlimited" and is fine; on CPython < 3.11
+    there is no cap and the getter is absent.
+    """
+    get_limit = getattr(sys, "get_int_max_str_digits", None)
+    if get_limit is None:
+        return
+    limit = get_limit()
+    if limit and limit < MAX_INT_DIGITS:
+        raise CanonError(
+            f"Interpreter int<->str digit limit ({limit}) is below the canonical "
+            f"limit ({MAX_INT_DIGITS}); raise it with sys.set_int_max_str_digits "
+            f"(or set 0 to disable) so canonical output is consistent across nodes."
+        )
 
 
 def _nfc(s: str) -> str:
@@ -272,6 +312,7 @@ def serialize(obj: Any, *, accept_floats: bool = False) -> bytes:
         >>> serialize(1.5, accept_floats=True)
         b'1.5'
     """
+    _require_int_str_limit()
     # _validate enforces MAX_DEPTH and raises CanonError before the native stack
     # can give out, so the RecursionError guard below should never fire for input
     # within the limit. It is a belt-and-suspenders for an unusually deep ambient

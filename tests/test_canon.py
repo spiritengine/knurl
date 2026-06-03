@@ -1274,3 +1274,23 @@ class TestIntegerMagnitude:
         # next to the limit and round-trip exactly.
         for n in (2 ** 53 + 1, 2 ** 64, 1746915264123456, 10 ** 100):
             assert json.loads(serialize({"n": n}))["n"] == n
+
+    def test_lowered_int_str_limit_is_rejected(self, serialize, CanonError):
+        # If the process lowers the int<->str cap below MAX_INT_DIGITS, serialize
+        # must fail loudly rather than silently diverge from nodes at the default
+        # cap (json.dumps would reject some <=MAX_INT_DIGITS ints those nodes accept).
+        set_limit = getattr(sys, "set_int_max_str_digits", None)
+        get_limit = getattr(sys, "get_int_max_str_digits", None)
+        if set_limit is None or get_limit is None:
+            pytest.skip("interpreter has no int<->str digit cap (CPython < 3.11)")
+        original = get_limit()
+        try:
+            set_limit(1000)  # below MAX_INT_DIGITS (4300)
+            with pytest.raises(CanonError):
+                serialize({"n": 1})
+        finally:
+            set_limit(original)
+
+    def test_default_int_str_limit_serializes(self, serialize):
+        # At the default cap (== MAX_INT_DIGITS) or unlimited, serialize works.
+        assert serialize({"n": 1}) == b'{"n":1}'
