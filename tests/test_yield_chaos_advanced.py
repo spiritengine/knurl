@@ -69,13 +69,14 @@ class TestKeyCollisionAttacks:
 
     def test_unicode_normalization_collision(self):
         """
-        Unicode strings that look identical but have different byte representations.
-        é could be U+00E9 or U+0065 U+0301
+        Keys that collide after NFC normalization are rejected.
+        é (U+00E9) and e+combining_acute (U+0065 U+0301) both normalize to é.
         """
-        # Composed form (single codepoint)
-        key1 = '\u00e9'  # é
-        # Decomposed form (e + combining acute accent)
-        key2 = 'e\u0301'  # é (visually identical)
+        from knurl.canon import CanonError
+        key1 = '\u00e9'  # precomposed é (NFC)
+        key2 = 'e\u0301'  # e + combining acute (NFD) — normalizes to é
+
+        assert key1 != key2  # Different Python strings
 
         data = {
             'task_id': 'test',
@@ -83,12 +84,9 @@ class TestKeyCollisionAttacks:
             key1: 'composed',
             key2: 'decomposed',
         }
-        # These look identical but are different keys!
-        assert key1 != key2
-        restored = y.deserialize(y.serialize(data))
-        # Both keys preserved separately
-        assert restored[key1] == 'composed'
-        assert restored[key2] == 'decomposed'
+        # After NFC normalization both keys become é — duplicate detected
+        with pytest.raises(CanonError, match="[Dd]uplicate"):
+            y.serialize(data)
 
     def test_case_collision(self):
         """Keys differing only in case."""

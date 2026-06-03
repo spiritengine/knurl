@@ -143,22 +143,22 @@ class TestSerializationWithInvalidData:
 class TestUnicodeEdgeCases:
     """Unicode edge cases from Oracle review."""
 
-    def test_unicode_normalization_not_applied(self):
-        """Different unicode forms produce different hashes."""
+    def test_unicode_normalization_applied(self):
+        """NFC normalization is applied: NFC and NFD inputs produce identical output."""
         import unicodedata
 
         # NFC: single codepoint é
         nfc = {'task_id': 'café', 'result': 'success'}
 
-        # NFD: e + combining accent
+        # NFD: e + combining accent (explicitly denormalized)
         nfd = {'task_id': unicodedata.normalize('NFD', 'café'), 'result': 'success'}
 
         # Both pass validation
         assert validate(nfc) == []
         assert validate(nfd) == []
 
-        # But serialize differently
-        assert serialize(nfc) != serialize(nfd)
+        # NFC normalization is applied during serialization — both produce same bytes
+        assert serialize(nfc) == serialize(nfd)
 
     def test_zero_width_characters_in_task_id(self):
         """Zero-width characters are allowed."""

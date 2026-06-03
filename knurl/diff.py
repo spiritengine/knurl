@@ -110,7 +110,7 @@ def _canonicalize(obj: dict) -> dict:
     Returns:
         Canonicalized dict with sorted keys at all levels
     """
-    canonical_bytes = canon.serialize(obj)
+    canonical_bytes = canon.serialize(obj, accept_floats=True)
     return json.loads(canonical_bytes)
 
 
@@ -236,8 +236,8 @@ def differs(old: dict, new: dict) -> bool:
         False
     """
     # Compare canonical forms for deterministic comparison
-    old_canon = canon.serialize(old)
-    new_canon = canon.serialize(new)
+    old_canon = canon.serialize(old, accept_floats=True)
+    new_canon = canon.serialize(new, accept_floats=True)
     return old_canon != new_canon
 
 

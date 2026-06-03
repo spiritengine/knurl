@@ -316,17 +316,21 @@ class TestNumericTypes:
     """Number handling edge cases."""
 
     def test_int_vs_float(self):
-        """Integer 1 differs from float 1.0 (type preservation)."""
+        """Floats are rejected from canonical chain configs; integers are required."""
         fp_int = fingerprint([{"val": 1}])
-        fp_float = fingerprint([{"val": 1.0}])
-        # JSON doesn't distinguish, so these may be same - document behavior
-        # If using strict typing, they'd differ
+        assert len(fp_int) == 1  # integers work
+        with pytest.raises(ChainError):
+            fingerprint([{"val": 1.0}])  # float rejected
 
     def test_negative_zero(self):
-        """-0.0 normalized to 0.0 (RFC 8785)."""
-        fp_neg_zero = fingerprint([{"val": -0.0}])
-        fp_zero = fingerprint([{"val": 0.0}])
-        assert fp_neg_zero[0] == fp_zero[0]
+        """Floats (including -0.0) are rejected from canonical chain configs."""
+        with pytest.raises(ChainError):
+            fingerprint([{"val": -0.0}])
+        with pytest.raises(ChainError):
+            fingerprint([{"val": 0.0}])
+        # Integer zero works fine
+        result = fingerprint([{"val": 0}])
+        assert len(result) == 1
 
     def test_large_integers(self):
         """Large integers work correctly."""
@@ -335,25 +339,17 @@ class TestNumericTypes:
         assert len(result) == 1
 
     def test_small_floats(self):
-        """Very small floats work."""
-        tiny = 1e-300
-        result = fingerprint([{"tiny": tiny}])
-        assert len(result) == 1
+        """Floats (including very small) are rejected from canonical chain configs."""
+        with pytest.raises(ChainError):
+            fingerprint([{"tiny": 1e-300}])
 
     def test_scientific_notation_type_preserved(self):
-        """1e10 (float) differs from 10000000000 (int).
-
-        In Python, 1e10 is a float and 10000000000 is an int.
-        JSON serializes them differently (10000000000.0 vs 10000000000).
-        This is correct behavior - type is preserved.
-        """
-        fp_float = fingerprint([{"val": 1e10}])  # float
+        """Floats are rejected; integer equivalents work and are deterministic."""
+        with pytest.raises(ChainError):
+            fingerprint([{"val": 1e10}])  # float rejected
+        # Integers are canonical
         fp_int = fingerprint([{"val": 10000000000}])  # int
-        # These SHOULD differ - one is float, one is int
-        assert fp_float[0] != fp_int[0]
-
-        # But same type should be equal
-        fp_int_2 = fingerprint([{"val": int(1e10)}])
+        fp_int_2 = fingerprint([{"val": int(1e10)}])  # same int via different path
         assert fp_int[0] == fp_int_2[0]
 
     def test_nan_rejected(self):
@@ -483,14 +479,13 @@ class TestNestedStructures:
         assert len(result) == 1
 
     def test_mixed_nesting(self):
-        """Complex mixed structures work."""
+        """Complex mixed structures work (no floats in canonical chain configs)."""
         config = {
             "string": "value",
             "number": 42,
-            "float": 3.14,
             "bool": True,
             "null": None,
-            "list": [1, "two", 3.0, None, {"nested": "dict"}],
+            "list": [1, "two", None, {"nested": "dict"}],
             "nested": {
                 "a": [1, 2, 3],
                 "b": {"deep": {"deeper": "value"}}
@@ -498,6 +493,12 @@ class TestNestedStructures:
         }
         result = fingerprint([config])
         assert len(result) == 1
+
+    def test_mixed_nesting_with_floats_rejected(self):
+        """Configs with float values are rejected from chain fingerprinting."""
+        config_with_float = {"number": 42, "float": 3.14}
+        with pytest.raises(ChainError):
+            fingerprint([config_with_float])
 
 
 class TestDuplicateConfigs:
