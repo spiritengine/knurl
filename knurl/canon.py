@@ -108,6 +108,19 @@ MAX_INT_DIGITS = 4300
 # (This is integer arithmetic, not int<->str, so it is unaffected by the cap below.)
 _MAX_INT_MAGNITUDE = 10 ** MAX_INT_DIGITS
 
+# The Unicode database version backing this interpreter's NFC normalization
+# (3.8 ships 12.1.0 ... 3.12 ships 15.0.0). Exposed so a deployment can detect a
+# UCD mismatch across nodes. By Unicode's Normalization Stability Policy the NFC
+# of an ASSIGNED character is immutable across versions, so the only cross-version
+# divergence vector is a code point that is unassigned in one node's UCD and
+# assigned (with composition/combining data) in another's. _nfc rejects code
+# points unassigned in the running UCD, so any string every node accepts
+# normalizes identically; comparing UNICODE_VERSION lets a fleet notice when a
+# newer interpreter has widened the accepted set (a coordinated-upgrade concern,
+# never a silent second hash). Pinning a fixed UCD for true cross-language parity
+# is deferred to when a non-Python implementation exists.
+UNICODE_VERSION = unicodedata.unidata_version
+
 
 def _require_int_str_limit() -> None:
     """Refuse to serialize if the interpreter's int<->str cap is below MAX_INT_DIGITS.
@@ -133,7 +146,24 @@ def _require_int_str_limit() -> None:
 
 
 def _nfc(s: str) -> str:
-    """Apply NFC normalization and verify UTF-8 encodability."""
+    """NFC-normalize s, rejecting code points unassigned in the running UCD.
+
+    A code point whose category is 'Cn' (reserved-unassigned or a noncharacter)
+    in this interpreter's Unicode database may be assigned with composition or
+    combining data in a newer database, where it would normalize differently.
+    Rejecting it makes such a cross-version divergence fail loudly on the
+    older-UCD node rather than silently produce a second canonical form (and
+    hash); any string every node accepts then normalizes identically. Lone
+    surrogates are category 'Cs', not 'Cn', and are caught by the UTF-8 encode
+    check below. See UNICODE_VERSION.
+    """
+    for ch in s:
+        if unicodedata.category(ch) == 'Cn':
+            raise CanonError(
+                f"Code point U+{ord(ch):04X} is unassigned (category Cn) in this "
+                f"interpreter's Unicode database (version {UNICODE_VERSION}); it has "
+                f"no stable canonical form across Unicode versions and is rejected."
+            )
     try:
         normalized = unicodedata.normalize('NFC', s)
         normalized.encode('utf-8')

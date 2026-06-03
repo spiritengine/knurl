@@ -704,7 +704,11 @@ except ImportError:
 
     class st:
         @staticmethod
-        def text(**kwargs):
+        def text(*args, **kwargs):
+            return _DummyStrategy()
+
+        @staticmethod
+        def characters(*args, **kwargs):
             return _DummyStrategy()
 
         @staticmethod
@@ -725,7 +729,9 @@ class TestHypothesis:
     """Property-based tests using Hypothesis."""
 
     @given(
-        task_id=st.text(min_size=1),
+        # Canonical domain: assigned, non-surrogate code points (canon rejects
+        # unassigned 'Cn' code points and lone surrogates 'Cs').
+        task_id=st.text(st.characters(exclude_categories=('Cs', 'Cn')), min_size=1),
         result=st.sampled_from(['success', 'failed', 'skipped']),
     )
     def test_any_valid_yield_roundtrips(self, task_id, result):

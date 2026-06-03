@@ -293,7 +293,12 @@ class TestRoundTrip:
         result = apply_patch(old, patch)
         assert result == new
 
-    @given(st.dictionaries(st.text(min_size=1, max_size=10), st.integers()))
+    @given(st.dictionaries(
+        # Canonical domain: assigned, non-surrogate code points (canon rejects
+        # unassigned 'Cn' code points and lone surrogates 'Cs').
+        st.text(st.characters(exclude_categories=('Cs', 'Cn')), min_size=1, max_size=10),
+        st.integers(),
+    ))
     @settings(max_examples=50)
     def test_roundtrip_property(self, config):
         """Property-based round-trip test (NFC-normalized inputs only)."""

@@ -762,7 +762,9 @@ except ImportError:
         @staticmethod
         def floats(**kwargs): return _DummyStrategy()
         @staticmethod
-        def text(): return _DummyStrategy()
+        def text(*args, **kwargs): return _DummyStrategy()
+        @staticmethod
+        def characters(*args, **kwargs): return _DummyStrategy()
         @staticmethod
         def dictionaries(k, v): return _DummyStrategy()
         @staticmethod
@@ -773,6 +775,12 @@ except ImportError:
         def none(): return _DummyStrategy()
         @staticmethod
         def booleans(): return _DummyStrategy()
+
+
+# Canonical string domain: assigned, non-surrogate code points. canon rejects
+# unassigned ('Cn') code points (cross-UCD-version hazard) and lone surrogates
+# ('Cs'), so determinism/round-trip properties are tested over this alphabet.
+_CANON_TEXT = st.text(st.characters(exclude_categories=('Cs', 'Cn')))
 
 
 @pytest.mark.skipif(not HYPOTHESIS_AVAILABLE, reason="Hypothesis not installed")
@@ -795,9 +803,9 @@ class TestHypothesis:
         result2 = serialize(f, accept_floats=True)
         assert result1 == result2
 
-    @given(st.text())
+    @given(_CANON_TEXT)
     def test_string_determinism(self, s):
-        """Any string serializes deterministically."""
+        """Any canonical-domain string serializes deterministically."""
         from knurl.canon import serialize
         # Skip strings with lone surrogates
         try:
@@ -809,7 +817,7 @@ class TestHypothesis:
         result2 = serialize(s)
         assert result1 == result2
 
-    @given(st.dictionaries(st.text(), st.integers()))
+    @given(st.dictionaries(_CANON_TEXT, st.integers()))
     def test_dict_determinism(self, d):
         """Any dict serializes deterministically."""
         from knurl.canon import serialize
@@ -838,8 +846,8 @@ class TestHypothesis:
 
     @given(st.recursive(
         st.none() | st.booleans() | st.integers() |
-        st.floats(allow_nan=False, allow_infinity=False) | st.text(),
-        lambda children: st.lists(children) | st.dictionaries(st.text(), children),
+        st.floats(allow_nan=False, allow_infinity=False) | _CANON_TEXT,
+        lambda children: st.lists(children) | st.dictionaries(_CANON_TEXT, children),
         max_leaves=50
     ))
     @settings(max_examples=200)
@@ -1294,3 +1302,36 @@ class TestIntegerMagnitude:
     def test_default_int_str_limit_serializes(self, serialize):
         # At the default cap (== MAX_INT_DIGITS) or unlimited, serialize works.
         assert serialize({"n": 1}) == b'{"n":1}'
+
+
+class TestUnassignedCodePointRejection:
+    """Code points unassigned ('Cn') in the running Unicode database are rejected
+    so a cross-UCD-version normalization divergence fails loudly rather than
+    producing a second canonical form. Assigned code points (incl. private-use)
+    serialize normally."""
+
+    def test_unicode_version_is_exposed(self):
+        from knurl.canon import UNICODE_VERSION
+        assert UNICODE_VERSION == unicodedata.unidata_version
+
+    def test_noncharacter_rejected(self, serialize, CanonError):
+        for cp in ("￿", "﷐", "\U0010FFFF"):  # permanent noncharacters
+            assert unicodedata.category(cp) == "Cn"
+            with pytest.raises(CanonError):
+                serialize({"k": cp})
+            with pytest.raises(CanonError):
+                serialize(cp)  # also as a top-level / key value
+
+    def test_unassigned_as_key_rejected(self, serialize, CanonError):
+        with pytest.raises(CanonError):
+            serialize({"￿": 1})
+
+    def test_assigned_text_and_private_use_serialize(self, serialize):
+        assert unicodedata.category("") == "Co"  # private use is assigned
+        assert serialize({"k": ""}) == b'{"k":"\xee\x80\x80"}'
+        assert serialize({"café": "naïve"}) is not None
+
+    def test_surrogate_still_rejected_not_via_cn(self, serialize, CanonError):
+        # Lone surrogates are category 'Cs', caught by the UTF-8 encode check.
+        with pytest.raises(CanonError):
+            serialize({"k": "\ud800"})
