@@ -119,6 +119,13 @@ _MAX_INT_MAGNITUDE = 10 ** MAX_INT_DIGITS
 # newer interpreter has widened the accepted set (a coordinated-upgrade concern,
 # never a silent second hash). Pinning a fixed UCD for true cross-language parity
 # is deferred to when a non-Python implementation exists.
+#
+# Rolling-upgrade implication: a newer-UCD node accepts a superset of strings, so
+# content written by an upgraded node can contain a code point a not-yet-upgraded
+# node will reject — meaning that node cannot verify/ingest it until it upgrades.
+# This fails loud (never two valid hashes), but upgrades should be coordinated, or
+# writers upgraded last, so newly-acceptable code points aren't emitted ahead of
+# the fleet.
 UNICODE_VERSION = unicodedata.unidata_version
 
 
@@ -157,6 +164,12 @@ def _nfc(s: str) -> str:
     surrogates are category 'Cs', not 'Cn', and are caught by the UTF-8 encode
     check below. See UNICODE_VERSION.
     """
+    # Fast path: ASCII (U+0000-007F) is entirely assigned (no 'Cn'), contains no
+    # surrogates, and is invariant under NFC — it is already canonical, so it needs
+    # neither the per-character category scan nor normalization. This also confines
+    # that O(n) scan to genuinely non-ASCII input.
+    if s.isascii():
+        return s
     for ch in s:
         if unicodedata.category(ch) == 'Cn':
             raise CanonError(
