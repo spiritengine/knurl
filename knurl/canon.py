@@ -40,8 +40,16 @@ class CanonError(Exception):
     pass
 
 
-# Maximum nesting depth to prevent stack overflow
-MAX_DEPTH = 500
+# Maximum nesting depth to prevent stack overflow. Kept well under Python's
+# default recursion limit (1000) because serialize() makes three sequential
+# recursive passes (_validate, _normalize, json.dumps) that together spend
+# roughly two interpreter frames per nesting level: at the old value of 500 a
+# structure *at* the limit overflowed the native stack on CPython 3.10/3.11 (and
+# under any non-trivial ambient call stack) before the depth check could raise.
+# 200 leaves ample headroom on every supported interpreter, so a structure at or
+# below MAX_DEPTH always serializes and a deeper one raises CanonError — never a
+# raw RecursionError. (Practical JSON nests far shallower than this.)
+MAX_DEPTH = 200
 
 
 def _validate(obj: Any, seen: set[int], depth: int = 0) -> None:
@@ -152,17 +160,23 @@ def serialize(obj: Any) -> bytes:
         >>> serialize(float('nan'))
         CanonError: NaN values cannot be serialized to canonical JSON
     """
-    # Validate first (check for NaN, Infinity, circular refs)
-    _validate(obj, set())
-
-    # Normalize values (convert -0.0 to 0.0)
-    normalized = _normalize(obj)
-
-    # Serialize with canonical settings. The encode() is inside the try because
-    # ensure_ascii=False keeps any lone surrogate (from a non-UTF-8-derived key)
-    # in the string, and encoding it to UTF-8 then raises UnicodeEncodeError -
-    # which we wrap as CanonError rather than letting the raw error escape.
+    # _validate enforces MAX_DEPTH and raises CanonError before the native stack
+    # can give out, so the RecursionError guard below should never fire for input
+    # within the limit. It is a belt-and-suspenders for an unusually deep ambient
+    # call stack: a too-deep structure must always surface as a clean CanonError,
+    # never a raw RecursionError. (We deliberately do NOT raise the recursion
+    # limit to "make room" — that only converts a catchable error into a possible
+    # interpreter crash, and mutating that global is not thread-safe.)
+    #
+    # The json.dumps encode() is covered too because ensure_ascii=False keeps any
+    # lone surrogate (from a non-UTF-8-derived key) in the string, and encoding it
+    # to UTF-8 then raises UnicodeEncodeError - wrapped as CanonError rather than
+    # letting the raw error escape.
     try:
+        # Validate first (check for NaN, Infinity, circular refs).
+        _validate(obj, set())
+        # Normalize values (convert -0.0 to 0.0).
+        normalized = _normalize(obj)
         json_str = json.dumps(
             normalized,
             sort_keys=True,        # Lexicographic key ordering (code point order)
@@ -171,6 +185,10 @@ def serialize(obj: Any) -> bytes:
             allow_nan=False,       # Belt-and-suspenders: reject NaN/Inf at json level too
         )
         return json_str.encode('utf-8')
+    except RecursionError as e:
+        raise CanonError(
+            f"Structure too deeply nested to serialize (max depth {MAX_DEPTH})"
+        ) from e
     except ValueError as e:
         # ValueError covers NaN/Infinity (allow_nan=False) and UnicodeEncodeError
         # (a ValueError subclass) from encoding a lone surrogate.

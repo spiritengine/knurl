@@ -47,7 +47,7 @@ def test_CRASH_deep_recursion_in_canonicalize(compute):
     """
     from knurl.canon import CanonError
 
-    # Build deeply nested dict - exceeds MAX_DEPTH (500)
+    # Build deeply nested dict - well past MAX_DEPTH
     obj = current = {}
     for i in range(600):
         current['nested'] = {}

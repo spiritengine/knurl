@@ -255,7 +255,7 @@ class TestPathologicalInputs:
         """Extremely deep nesting exceeding MAX_DEPTH raises CanonError."""
         from knurl.canon import CanonError
 
-        depth = 600  # Exceeds MAX_DEPTH (500)
+        depth = 600  # well past MAX_DEPTH
         obj = {'value': 'bottom'}
         for _ in range(depth):
             obj = {'nested': obj}
