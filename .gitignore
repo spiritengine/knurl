@@ -25,3 +25,6 @@ wheels/
 # Local development
 .claude/
 .skein/
+
+# Shard worktrees (spindle/skein isolated copies)
+worktrees/
