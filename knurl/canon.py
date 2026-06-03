@@ -15,7 +15,17 @@ Rules:
 - Non-string dict keys raise CanonError
 - Duplicate keys after NFC normalization raise CanonError
 - Nesting deeper than MAX_DEPTH raises CanonError
+- Integers with more than MAX_INT_DIGITS decimal digits raise CanonError
 - Output is UTF-8 bytes (no BOM)
+
+Integer handling (a deliberate divergence from a literal RFC 8785, which other
+implementations MUST match): integers are serialized as their EXACT base-10
+digits, NOT as IEEE-754 doubles per RFC 8785 §3.2.2.3 — so 9007199254740993 stays
+itself rather than collapsing to 9007199254740992. The int-vs-float distinction is
+by JSON SYNTAX, not value: a number token containing '.' or 'e'/'E' is a float and
+is rejected by default (so {"n":1e2} is rejected while {"n":100} is accepted, even
+though both equal 100). A reference RFC 8785 library bolted to NFC would diverge
+here; the SKEIN spec (finding-20260511-pqxy) pins exact-integer rendering.
 
 Duplicate-key note: json.loads() silently coalesces duplicate keys before this
 function sees them. Callers that need to reject duplicate-keyed JSON strings
@@ -39,6 +49,7 @@ class CanonError(Exception):
     - Floats when accept_floats=False (the default)
     - Circular references
     - Excessive nesting depth (> MAX_DEPTH)
+    - Integer magnitude exceeding MAX_INT_DIGITS decimal digits
     - Non-string dict keys
     - Duplicate keys after NFC normalization
     - Strings containing lone Unicode surrogates
@@ -63,6 +74,22 @@ class CanonError(Exception):
 # below MAX_DEPTH always serializes and a deeper one raises CanonError — never a
 # raw RecursionError. (Practical JSON nests far shallower than this.)
 MAX_DEPTH = 200
+
+# Maximum magnitude of an integer, as a count of base-10 digits in its absolute
+# value. An integer with more than MAX_INT_DIGITS digits raises CanonError.
+# 4300 matches CPython 3.11+'s default int<->str conversion limit: on 3.11+ a
+# larger integer already fails mid-serialize, while 3.8-3.10 have no cap, so
+# without this guard the same integer would hash on one node and be rejected on
+# another — a version split in the content-address scheme. Enforcing it here (and
+# at the same boundary as the interpreter's own parse-side limit) makes the
+# accept/reject outcome uniform across versions. It is also vastly beyond any real
+# SKEIN integer (microsecond timestamps are ~16 digits) and bounds the superlinear
+# cost of int<->str on adversarially huge values.
+MAX_INT_DIGITS = 4300
+# Precomputed once: an integer has more than MAX_INT_DIGITS digits iff its
+# absolute value is >= 10**MAX_INT_DIGITS. Comparing against this avoids calling
+# str() on a giant int — the very superlinear operation the limit exists to bound.
+_MAX_INT_MAGNITUDE = 10 ** MAX_INT_DIGITS
 
 
 def _nfc(s: str) -> str:
@@ -105,6 +132,7 @@ def _validate(obj: Any, seen: set[int], depth: int = 0, accept_floats: bool = Fa
     Raises CanonError for:
     - NaN or Infinity floats
     - Floats when accept_floats is False
+    - Integers exceeding MAX_INT_DIGITS decimal digits
     - Circular references
     - Non-string dict keys
     - Excessive nesting depth
@@ -143,6 +171,16 @@ def _validate(obj: Any, seen: set[int], depth: int = 0, accept_floats: bool = Fa
             raise CanonError(
                 f"Float values are not allowed in canonical JSON (got {obj!r}). "
                 "Pass accept_floats=True for non-canonical use."
+            )
+
+    # bool is an int subclass but serializes as true/false, so exclude it.
+    elif isinstance(obj, int) and not isinstance(obj, bool):
+        # Bound integer magnitude uniformly across interpreters (see MAX_INT_DIGITS).
+        # abs() + a precomputed power-of-ten comparison avoids stringifying the int.
+        if abs(obj) >= _MAX_INT_MAGNITUDE:
+            raise CanonError(
+                f"Integer magnitude exceeds the canonical limit of "
+                f"{MAX_INT_DIGITS} decimal digits"
             )
 
 
@@ -211,9 +249,10 @@ def serialize(obj: Any, *, accept_floats: bool = False) -> bytes:
 
     Raises:
         CanonError: If the object contains NaN, Infinity, floats (when
-            accept_floats=False), circular references, non-string dict keys,
-            duplicate keys after NFC normalization, strings with lone surrogates,
-            or nesting depth exceeding MAX_DEPTH.
+            accept_floats=False), an integer exceeding MAX_INT_DIGITS decimal
+            digits, circular references, non-string dict keys, duplicate keys
+            after NFC normalization, strings with lone surrogates, or nesting
+            depth exceeding MAX_DEPTH.
         TypeError: If the object contains non-JSON-serializable types (bytes,
             sets, custom objects).
 

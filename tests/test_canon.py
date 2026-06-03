@@ -1234,3 +1234,43 @@ class TestConformanceVectors:
         keys = list(json.loads(result).keys())
         assert keys[0] == "\U00010000"
         assert keys[1] == ""
+
+
+class TestIntegerMagnitude:
+    """Integers are bounded to MAX_INT_DIGITS decimal digits, enforced uniformly
+    across interpreter versions (CPython 3.11+ caps int<->str at 4300 digits; older
+    versions do not). The bound is what keeps a huge integer from hashing on one
+    node and being rejected on another."""
+
+    def test_max_digits_value(self):
+        from knurl.canon import MAX_INT_DIGITS
+        assert MAX_INT_DIGITS == 4300
+
+    def test_integer_at_limit_serializes(self, serialize):
+        # 10**4299 has exactly 4300 digits -> accepted.
+        n = 10 ** (4300 - 1)
+        assert len(str(n)) == 4300
+        assert serialize({"n": n}) == b'{"n":' + str(n).encode() + b'}'
+
+    def test_integer_over_limit_raises_canon_error(self, serialize, CanonError):
+        # 10**4300 is 1 followed by 4300 zeros = 4301 digits -> rejected. (We do
+        # NOT str() it: on 3.11+ str() of a 4301-digit int itself raises ValueError
+        # from the int<->str cap — exactly the cost canon.serialize must avoid.)
+        n = 10 ** 4300
+        with pytest.raises(CanonError):
+            serialize({"n": n})
+
+    def test_negative_over_limit_raises(self, serialize, CanonError):
+        with pytest.raises(CanonError):
+            serialize(-(10 ** 4300))
+
+    def test_bool_is_not_caught_by_int_bound(self, serialize):
+        # bool is an int subclass but must serialize as true/false, never be
+        # mistaken for an oversized integer.
+        assert serialize({"a": True, "b": False}) == b'{"a":true,"b":false}'
+
+    def test_ordinary_large_ints_unaffected(self, serialize):
+        # Values SKEIN actually uses (microsecond timestamps, >2^53 ids) are tiny
+        # next to the limit and round-trip exactly.
+        for n in (2 ** 53 + 1, 2 ** 64, 1746915264123456, 10 ** 100):
+            assert json.loads(serialize({"n": n}))["n"] == n
