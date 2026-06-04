@@ -13,8 +13,14 @@ Four entry points, each a distinct interface (never a mode flag on another):
 All four share one output format - 'sha256:<hex>', or 'prefix:sha256:<hex>'
 when a namespace prefix is given - so digests stay algorithm-qualified.
 
+compute_tree_manifest(path) is the manifest-exposing companion to compute_tree:
+same single walk, but it returns the per-entry content hashes alongside the
+digest (a TreeManifest) for content-addressed storage. compute_tree delegates
+to it.
+
 Usage:
     from knurl.hash import compute, compute_bytes, compute_file, compute_tree
+    from knurl.hash import compute_tree_manifest  # digest + per-entry hashes
 
     # Strings and bytes (compute(s) == compute_bytes(s.encode('utf-8')))
     compute("hello world")            # 'sha256:b94d27b9...'
@@ -38,6 +44,7 @@ import os
 import re
 import stat
 import unicodedata
+from dataclasses import dataclass
 from typing import Optional, Union
 
 from . import canon
@@ -331,12 +338,63 @@ def compute_file(path: Union[str, os.PathLike], prefix: Optional[str] = None) ->
     return _format_digest(_file_digest(path, nofollow=False), prefix)
 
 
-def compute_tree(path: Union[str, os.PathLike], prefix: Optional[str] = None) -> str:
-    """Compute a canonical, reproducible hash of a directory tree.
+@dataclass(frozen=True, slots=True)
+class TreeManifest:
+    """The result of walking a directory tree: its digest plus per-entry hashes.
 
-    The same tree of files always hashes identically across machines and runs,
-    which makes the digest usable for version dedup (same hash = same content,
-    different hash = new version).
+    Returned by :func:`compute_tree_manifest`. Both fields come from a single
+    walk, so the digest and the entries it was derived from are guaranteed
+    consistent with each other.
+
+    Attributes:
+        digest: The tree digest, identical to what ``compute_tree(path, prefix)``
+            returns. Carries the ``prefix`` if one was given.
+        entries: The manifest, mapping each NFC-normalized POSIX relative path to
+            a typed descriptor:
+              - regular file -> ``{"type": "file", "hash": "sha256:<hex>"}``
+              - symlink      -> ``{"type": "symlink", "target": "<normalized>"}``
+            File hashes are **unprefixed** (a ``prefix`` applies only to
+            ``digest``), and carry no file sizes - content addressing only.
+            Empty directories contribute no entries (see the load-bearing
+            invariant in :func:`compute_tree_manifest`).
+
+    Mutability and hashing: ``frozen=True`` blocks rebinding ``digest`` and
+    ``entries``, but ``entries`` is a live ``dict`` - intentionally the very
+    object that was serialized to produce ``digest``, so it stays byte-faithful
+    to it (a defensive copy could silently diverge). Treat it as **read-only**:
+    mutating ``entries`` after the call leaves ``digest`` stale, so a later
+    ``compute_bytes(canon.serialize(entries))`` would no longer match ``digest``.
+    Copy it first if you need to mutate. For the same reason (``entries`` is a
+    dict) a ``TreeManifest`` is **not hashable** - key on ``.digest`` rather than
+    using the instance as a set member or dict key.
+    """
+
+    digest: str
+    entries: dict[str, dict[str, str]]
+
+
+def compute_tree_manifest(
+    path: Union[str, os.PathLike], prefix: Optional[str] = None
+) -> TreeManifest:
+    """Walk a directory tree, returning its digest and per-entry content hashes.
+
+    This is the manifest-exposing form of :func:`compute_tree`. It performs the
+    same single walk and returns both the rolled-up ``digest`` and the
+    ``{rel_path -> descriptor}`` map (``entries``) it was hashed from, so a
+    caller can address individual file blobs - the basis for content-addressed
+    cross-version dedup - without re-walking the tree. ``compute_tree`` delegates
+    to this function and returns only ``.digest``; there is one walk and one
+    source of truth.
+
+    The load-bearing invariant - the digest is derivable from *exactly* the
+    exposed entries, with no hidden inputs::
+
+        compute_tree(path, prefix)
+          == compute_tree_manifest(path, prefix).digest
+          == compute_bytes(canon.serialize(entries), prefix=prefix)
+
+    This is what lets a consumer recompute the tree digest from a *stored*
+    manifest (plus the blobs it references) without re-walking a live tree.
 
     The scheme:
       - Walk the tree, building a manifest mapping each entry's relative path
@@ -348,12 +406,25 @@ def compute_tree(path: Union[str, os.PathLike], prefix: Optional[str] = None) ->
         Symlinks map to {"type": "symlink", "target": <normalized target>} -
         the target is recorded, never followed. The typed descriptor keeps a
         file whose contents are "../x" from colliding with a symlink to "../x".
-      - File mode / executable bit is not included: content only.
+      - File mode / executable bit is not included: content only. Entries carry
+        no file sizes either - a consumer that wants a size stats the file.
       - Empty subdirectories contribute nothing (like git, which tracks files,
         not directories). A tree with at least one symlink is non-empty even
-        if it has no regular files.
+        if it has no regular files. A consumer that reconstructs a tree from
+        ``entries`` + blobs therefore does not recover empty directories: their
+        absence is a documented property of the manifest, not a bug.
       - The manifest is serialized with canon (sorted keys, no whitespace) and
         the resulting bytes are hashed with compute_bytes().
+
+    Entry order: ``canon.serialize`` sorts keys, so ``digest`` does not depend on
+    the iteration order of ``entries``. The contract is the key/value *set*, not
+    its order; a consumer that re-serializes the manifest must go through
+    ``canon`` to reproduce the digest.
+
+    Prefix: a ``prefix``, if given, applies only to the returned ``digest``. The
+    file hashes inside ``entries`` are always unprefixed ``sha256:<hex>``
+    (matching :func:`compute_file`), so blob addresses derived from the manifest
+    are prefix-free.
 
     Root symlinks: if ``path`` itself is a symlink to a directory it is
     followed, exactly as tar, git, or cd would follow the path you hand them -
@@ -369,20 +440,30 @@ def compute_tree(path: Union[str, os.PathLike], prefix: Optional[str] = None) ->
     (O_NOFOLLOW is POSIX-only; where it is unavailable, e.g. Windows, the
     file->symlink swap defense is inactive.)
 
+    Memory: unlike :func:`compute_file` (which streams individual file contents
+    with bounded memory), the manifest of paths and hashes is held fully
+    resident, and ``canon.serialize`` transiently builds a second normalized copy
+    on top of it before hashing - on the order of 1 KiB per entry at peak. This
+    path is bounded by entry count, not streamed: a tree of millions of entries
+    costs on the order of a gigabyte. (File *contents* are still streamed; it is
+    the path/hash manifest that is resident.)
+
     Args:
         path: Path to a directory (str or PathLike; bytes paths are rejected).
         prefix: Optional namespace prefix applied to the final tree digest only
                 (inner file digests are unprefixed).
 
     Returns:
-        A hash string: 'sha256:hexdigest' or 'prefix:sha256:hexdigest'.
+        A :class:`TreeManifest` carrying ``digest`` and ``entries``.
 
     Raises:
         HashError: If prefix is invalid, the path is a bytes path or not a
                    directory, a directory cannot be read, the tree contains no
                    entries (empty tree), a non-regular file (FIFO, socket,
                    device) is encountered, an entry has a name or symlink target
-                   that is not valid UTF-8, or an entry cannot be read.
+                   that is not valid UTF-8 or contains a code point unassigned in
+                   the running Unicode database (category Cn), or an entry cannot
+                   be read.
     """
     prefix = _normalize_prefix(prefix)
 
@@ -494,8 +575,86 @@ def compute_tree(path: Union[str, os.PathLike], prefix: Optional[str] = None) ->
     if not manifest:
         raise HashError(f"Tree contains no entries (no files or symlinks): {root!r}")
 
-    serialized = canon.serialize(manifest)
-    return compute_bytes(serialized, prefix=prefix)
+    # canon.serialize rejects strings it cannot canonicalize reproducibly -
+    # notably code points unassigned in the running Unicode database (category
+    # Cn), which are valid UTF-8 (so they passed the _rel_key UTF-8 screen above)
+    # but have no stable NFC form to hash. Surface that as HashError so the tree
+    # contract exposes one exception type, exactly as _rel_key already wraps the
+    # lone-surrogate case. CanonError is not a HashError subclass, so without this
+    # a caller catching HashError (as the documented contract invites) would miss
+    # it.
+    try:
+        serialized = canon.serialize(manifest)
+    except canon.CanonError as e:
+        raise HashError(
+            f"Tree contains an entry name or symlink target that cannot be "
+            f"canonically hashed (unassigned/unnormalizable code point?): {e}"
+        ) from e
+    digest = compute_bytes(serialized, prefix=prefix)
+    return TreeManifest(digest=digest, entries=manifest)
+
+
+def compute_tree(path: Union[str, os.PathLike], prefix: Optional[str] = None) -> str:
+    """Compute a canonical, reproducible hash of a directory tree.
+
+    The same tree of files always hashes identically across machines and runs,
+    which makes the digest usable for version dedup (same hash = same content,
+    different hash = new version).
+
+    This delegates to :func:`compute_tree_manifest` and returns its ``.digest``,
+    so the two share one walk and cannot drift. Use ``compute_tree_manifest`` if
+    you also need the per-entry content hashes (e.g. to address file blobs); see
+    its docstring for the full walk semantics and the digest/entries invariant.
+
+    The scheme:
+      - Walk the tree, building a manifest mapping each entry's relative path
+        to a typed descriptor.
+      - Paths are relative to ``path``, use POSIX '/' separators, and are
+        Unicode-normalized to NFC so a name stored decomposed on one OS
+        (e.g. macOS) matches the same name stored composed on another (Linux).
+      - Regular files map to {"type": "file", "hash": compute_file(entry)}.
+        Symlinks map to {"type": "symlink", "target": <normalized target>} -
+        the target is recorded, never followed. The typed descriptor keeps a
+        file whose contents are "../x" from colliding with a symlink to "../x".
+      - File mode / executable bit is not included: content only.
+      - Empty subdirectories contribute nothing (like git, which tracks files,
+        not directories). A tree with at least one symlink is non-empty even
+        if it has no regular files.
+      - The manifest is serialized with canon (sorted keys, no whitespace) and
+        the resulting bytes are hashed with compute_bytes().
+
+    Root symlinks: if ``path`` itself is a symlink to a directory it is
+    followed, exactly as tar, git, or cd would follow the path you hand them -
+    the caller chose it. Only symlinks discovered *inside* the tree are
+    recorded rather than followed. Pass ``Path(path).resolve()`` if you need
+    the root resolved explicitly.
+
+    Concurrency: the digest reflects the tree as it is read. Hashing a tree
+    that is being modified concurrently is out of scope - the result may
+    reflect an intermediate state. O_NOFOLLOW/O_NONBLOCK opens defend against
+    the cheap file<->symlink and special-file swaps, but a hash of a live,
+    adversarially-mutating tree is not guaranteed to match any single snapshot.
+    (O_NOFOLLOW is POSIX-only; where it is unavailable, e.g. Windows, the
+    file->symlink swap defense is inactive.)
+
+    Args:
+        path: Path to a directory (str or PathLike; bytes paths are rejected).
+        prefix: Optional namespace prefix applied to the final tree digest only
+                (inner file digests are unprefixed).
+
+    Returns:
+        A hash string: 'sha256:hexdigest' or 'prefix:sha256:hexdigest'.
+
+    Raises:
+        HashError: If prefix is invalid, the path is a bytes path or not a
+                   directory, a directory cannot be read, the tree contains no
+                   entries (empty tree), a non-regular file (FIFO, socket,
+                   device) is encountered, an entry has a name or symlink target
+                   that is not valid UTF-8 or contains a code point unassigned in
+                   the running Unicode database (category Cn), or an entry cannot
+                   be read.
+    """
+    return compute_tree_manifest(path, prefix).digest
 
 
 def verify(content: str, hash_string: str) -> bool:

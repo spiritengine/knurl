@@ -40,6 +40,11 @@ blob_hash = hash.compute_bytes(b"\x00\x01\x02")   # 'sha256:...' (raw bytes)
 file_hash = hash.compute_file("video.mp4")        # 'sha256:...' (streamed, multi-GB safe)
 tree_hash = hash.compute_tree("mirror/")          # 'sha256:...' (reproducible directory digest)
 
+# Same walk, but keep the per-file content hashes (for content-addressed dedup)
+manifest = hash.compute_tree_manifest("mirror/")  # TreeManifest(digest, entries)
+manifest.digest                                   # == compute_tree("mirror/")
+manifest.entries["index.html"]                    # {'type': 'file', 'hash': 'sha256:...'}
+
 # Chain fingerprinting
 fingerprints = chain.fingerprint([config1, config2, config3])
 

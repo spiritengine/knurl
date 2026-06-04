@@ -16,7 +16,16 @@ from .canon import (
     MAX_INT_DIGITS,
     UNICODE_VERSION,
 )
-from .hash import compute, compute_bytes, compute_file, compute_tree, verify, HashError
+from .hash import (
+    compute,
+    compute_bytes,
+    compute_file,
+    compute_tree,
+    compute_tree_manifest,
+    verify,
+    HashError,
+    TreeManifest,
+)
 from .address import parse, construct, validate, ParsedAddress, AddressError
 from .chain import fingerprint, fingerprint_step, ChainError
 from . import yield_
