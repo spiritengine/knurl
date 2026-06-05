@@ -567,9 +567,16 @@ def compute_tree_manifest(
                     "hash": _format_digest(_file_digest(full, nofollow=True), None),
                 }
             else:
+                # isfile() is also False if the entry vanished or became
+                # unreadable between the walk and this stat (a concurrent change
+                # or a permission error), not only for a genuine non-regular
+                # file. Name both causes so the message is not misleading; either
+                # way the tree cannot be hashed as a stable snapshot, so it is a
+                # HashError.
                 raise HashError(
-                    f"Unsupported non-regular file in tree (FIFO, socket, or "
-                    f"device?): {full!r}"
+                    f"Unsupported non-regular file in tree, or an entry that "
+                    f"vanished or became unreadable during the walk (FIFO, "
+                    f"socket, device, or concurrent change?): {full!r}"
                 )
 
     if not manifest:

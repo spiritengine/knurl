@@ -15,9 +15,13 @@ directories).
 """
 
 import dataclasses
+import json
 import os
+import tempfile
 
 import pytest
+from hypothesis import HealthCheck, assume, given, settings
+from hypothesis import strategies as st
 
 from knurl import canon
 from knurl.hash import (
@@ -399,3 +403,100 @@ class TestManifestRoundTrip:
         reordered = dict(reversed(list(m.entries.items())))
         assert list(reordered) != list(m.entries)  # genuinely reordered
         assert compute_bytes(canon.serialize(reordered)) == m.digest
+
+
+# --- Property-based: the invariant must hold for ALL trees, not hand-picked ones.
+
+# A small alphabet of name fragments that deliberately mixes ASCII, an NFC
+# precomposed char and its NFD decomposition (so sibling collisions arise), a
+# CJK code point, and tokens that build nested paths and dotted extensions.
+_FRAGMENTS = st.sampled_from(
+    ["a", "b", "Z", "0", "9", "-", "_", " ", "x", "\u00e9", "e\u0301", "\u4e2d", "sub", ".txt"]
+)
+# A single path component: 1-3 fragments joined, excluding the reserved "." / ".."
+# and anything with a separator or NUL (those are tested explicitly elsewhere).
+_component = (
+    st.lists(_FRAGMENTS, min_size=1, max_size=3)
+    .map("".join)
+    .filter(lambda s: s not in ("", ".", "..") and "/" not in s and "\x00" not in s)
+)
+# A relative path of 1-3 components.
+_rel_path = st.lists(_component, min_size=1, max_size=3)
+# A symlink target: a short string; "/" allowed (recorded, never followed),
+# NUL excluded (os.symlink would reject it before we ever hash).
+_target = st.text(
+    alphabet=st.sampled_from(["a", "b", "/", ".", "-", "\u00e9", "\u4e2d", "x"]),
+    min_size=1,
+    max_size=8,
+)
+_entry = st.tuples(
+    _rel_path,
+    st.one_of(
+        st.tuples(st.just("file"), st.binary(max_size=48)),
+        st.tuples(st.just("symlink"), _target),
+    ),
+)
+
+
+def _materialize(root, entries):
+    """Best-effort build the tree; skip entries that conflict on disk (a name
+    used as both file and dir, a target os.symlink rejects). Returns True if at
+    least one entry landed."""
+    placed = 0
+    for comps, (kind, payload) in entries:
+        full = os.path.join(root, *comps)
+        try:
+            os.makedirs(os.path.dirname(full), exist_ok=True)
+            if kind == "file":
+                with open(full, "wb") as f:
+                    f.write(payload)
+            else:
+                os.symlink(payload, full)
+        except (OSError, ValueError):
+            continue  # conflicting path or unrepresentable entry - drop it
+        placed += 1
+    return placed > 0
+
+
+class TestInvariantProperty:
+    """Fuzz the three-way invariant and the storage round-trip over random trees.
+
+    For any tree we can build: either both entry points raise HashError (parity),
+    or the digest is derivable from exactly the exposed entries AND survives a
+    JSON persist -> reload -> recompute (hoard's actual stored-manifest path)."""
+
+    @settings(max_examples=300, deadline=None, suppress_health_check=[HealthCheck.too_slow])
+    @given(entries=st.lists(_entry, min_size=1, max_size=8), prefix=st.one_of(st.none(), st.just("hoard")))
+    def test_invariant_holds_or_errors_in_parity(self, entries, prefix):
+        with tempfile.TemporaryDirectory() as d:
+            root = os.path.join(d, "tree")
+            os.mkdir(root)
+            assume(_materialize(root, entries))
+
+            try:
+                m = compute_tree_manifest(root, prefix)
+            except HashError:
+                # Whatever made the manifest path raise must also make the
+                # delegating compute_tree raise - parity is structural.
+                with pytest.raises(HashError):
+                    compute_tree(root, prefix)
+                return
+
+            # The three-way invariant.
+            assert m.digest == compute_tree(root, prefix)
+            assert m.digest == compute_bytes(canon.serialize(m.entries), prefix=prefix)
+
+            # entries faithfully captures the digest's inputs even after a JSON
+            # round-trip (the hoard stored-manifest -> recompute path): persisting
+            # and reloading the manifest reproduces the exact digest.
+            reloaded = json.loads(canon.serialize(m.entries))
+            assert compute_bytes(canon.serialize(reloaded), prefix=prefix) == m.digest
+
+            # Every entry is a well-formed typed descriptor; file hashes unprefixed.
+            for key, desc in m.entries.items():
+                assert desc["type"] in ("file", "symlink")
+                if desc["type"] == "file":
+                    assert desc["hash"].startswith("sha256:")
+                    assert ":" not in desc["hash"][len("sha256:"):]
+                else:
+                    assert "target" in desc
