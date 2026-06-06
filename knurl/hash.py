@@ -357,20 +357,29 @@ class TreeManifest:
             ``digest``), and carry no file sizes - content addressing only.
             Empty directories contribute no entries (see the load-bearing
             invariant in :func:`compute_tree_manifest`).
+        paths: A parallel map with the **same keys as** ``entries``, giving each
+            entry's **real on-disk** relative POSIX path - the raw name as stored,
+            *before* NFC normalization. For a name already in NFC form (all ASCII
+            names included) ``paths[k] == k``; for a name stored in any other form
+            (e.g. NFD on Linux) it differs, and only ``paths[k]`` - not the NFC
+            key ``k`` - re-opens the file (``open(root / paths[k])``). ``paths``
+            is **not part of the digest**: two trees with identical content but
+            different on-disk name forms still hash identically.
 
-    Mutability and hashing: ``frozen=True`` blocks rebinding ``digest`` and
-    ``entries``, but ``entries`` is a live ``dict`` - intentionally the very
-    object that was serialized to produce ``digest``, so it stays byte-faithful
-    to it (a defensive copy could silently diverge). Treat it as **read-only**:
-    mutating ``entries`` after the call leaves ``digest`` stale, so a later
-    ``compute_bytes(canon.serialize(entries))`` would no longer match ``digest``.
-    Copy it first if you need to mutate. For the same reason (``entries`` is a
-    dict) a ``TreeManifest`` is **not hashable** - key on ``.digest`` rather than
-    using the instance as a set member or dict key.
+    Mutability and hashing: ``frozen=True`` blocks rebinding the fields, but
+    ``entries`` (and ``paths``) are live ``dict``s - ``entries`` is intentionally
+    the very object that was serialized to produce ``digest``, so it stays
+    byte-faithful to it (a defensive copy could silently diverge). Treat them as
+    **read-only**: mutating ``entries`` after the call leaves ``digest`` stale, so
+    a later ``compute_bytes(canon.serialize(entries))`` would no longer match
+    ``digest``. Copy first if you need to mutate. For the same reason (the fields
+    are dicts) a ``TreeManifest`` is **not hashable** - key on ``.digest`` rather
+    than using the instance as a set member or dict key.
     """
 
     digest: str
     entries: dict[str, dict[str, str]]
+    paths: dict[str, str]
 
 
 def compute_tree_manifest(
@@ -426,6 +435,15 @@ def compute_tree_manifest(
     (matching :func:`compute_file`), so blob addresses derived from the manifest
     are prefix-free.
 
+    On-disk paths: ``entries`` keys are NFC-normalized for digest stability, but a
+    file's bytes live at its *real* on-disk name, which on a non-normalizing
+    filesystem (Linux) may be decomposed (NFD) or otherwise non-NFC. The returned
+    ``TreeManifest`` therefore also carries ``paths`` - the same keys mapped to the
+    raw on-disk relative path - so a consumer can re-open an entry it cannot reach
+    via the NFC key (``open(root / paths[key])``). ``paths`` is **not** part of the
+    digest; it is computed in this same walk and never serialized, so adding it
+    does not shift any tree's digest. See :class:`TreeManifest`.
+
     Root symlinks: if ``path`` itself is a symlink to a directory it is
     followed, exactly as tar, git, or cd would follow the path you hand them -
     the caller chose it. Only symlinks discovered *inside* the tree are
@@ -442,11 +460,12 @@ def compute_tree_manifest(
 
     Memory: unlike :func:`compute_file` (which streams individual file contents
     with bounded memory), the manifest of paths and hashes is held fully
-    resident, and ``canon.serialize`` transiently builds a second normalized copy
-    on top of it before hashing - on the order of 1 KiB per entry at peak. This
-    path is bounded by entry count, not streamed: a tree of millions of entries
-    costs on the order of a gigabyte. (File *contents* are still streamed; it is
-    the path/hash manifest that is resident.)
+    resident - now in two maps (``entries`` and ``paths``) - and ``canon.serialize``
+    transiently builds a second normalized copy of ``entries`` on top of that
+    before hashing - on the order of 1-2 KiB per entry at peak. This path is
+    bounded by entry count, not streamed: a tree of millions of entries costs on
+    the order of a gigabyte. (File *contents* are still streamed; it is the
+    path/hash manifest that is resident.)
 
     Args:
         path: Path to a directory (str or PathLike; bytes paths are rejected).
@@ -454,7 +473,8 @@ def compute_tree_manifest(
                 (inner file digests are unprefixed).
 
     Returns:
-        A :class:`TreeManifest` carrying ``digest`` and ``entries``.
+        A :class:`TreeManifest` carrying ``digest``, ``entries``, and ``paths``
+        (the real on-disk relative path per entry; see :class:`TreeManifest`).
 
     Raises:
         HashError: If prefix is invalid, the path is a bytes path or not a
@@ -480,6 +500,11 @@ def compute_tree_manifest(
         )
 
     manifest: dict[str, dict[str, str]] = {}
+    # Real on-disk relative path per manifest key (pre-NFC). Same key set as
+    # manifest; populated only on the success path, never serialized, never part
+    # of the digest. Lets a consumer re-open an entry whose on-disk name form
+    # differs from its NFC key.
+    paths: dict[str, str] = {}
     # Normalized relative paths claimed so far - across files, symlinks, AND
     # directories. Two distinct on-disk names that normalize to the same NFC
     # path must be refused, not collapsed by walk order. Tracking directories
@@ -495,8 +520,13 @@ def compute_tree_manifest(
         # Raising here surfaces it instead.
         raise HashError(f"Could not read directory while walking tree: {err}") from err
 
-    def _rel_key(abs_path: str, what: str) -> str:
-        """Relative POSIX path of abs_path under root, NFC-normalized.
+    def _rel_key(abs_path: str, what: str) -> tuple[str, str]:
+        """Return (real on-disk relative POSIX path, NFC-normalized key).
+
+        The NFC key is what feeds the digest (normalization-stable across
+        platforms); the raw ``rel_posix`` is the actual on-disk path that
+        re-opens the entry on a non-normalizing filesystem (Linux), where the
+        stored name may be decomposed (NFD) while the key is composed (NFC).
 
         A non-UTF-8 name decodes (via surrogateescape) to lone surrogates.
         normalize() passes those through, but they cannot be UTF-8 encoded for
@@ -510,7 +540,7 @@ def compute_tree_manifest(
             raise HashError(
                 f"Cannot hash {what} with a non-UTF-8 name: {abs_path!r} ({e})"
             ) from e
-        return unicodedata.normalize("NFC", rel_posix)
+        return rel_posix, unicodedata.normalize("NFC", rel_posix)
 
     def _claim(key: str) -> None:
         if key in seen:
@@ -525,9 +555,10 @@ def compute_tree_manifest(
     # below rather than descended into (avoids cycles and escaping the tree).
     for dirpath, dirnames, filenames in os.walk(root, followlinks=False, onerror=_on_walk_error):
         # Claim each real directory's normalized path (the root itself is rel
-        # ".", skipped) so colliding sibling directories are caught.
+        # ".", skipped) so colliding sibling directories are caught. Directories
+        # are not manifest entries, so their on-disk path is not recorded.
         if dirpath != root:
-            _claim(_rel_key(dirpath, "directory"))
+            _claim(_rel_key(dirpath, "directory")[1])
 
         # Symlinked directories appear in dirnames; record them as symlinks.
         entries = [os.path.join(dirpath, name) for name in filenames]
@@ -538,7 +569,7 @@ def compute_tree_manifest(
         ]
 
         for full in entries:
-            key = _rel_key(full, "entry")
+            rel_posix, key = _rel_key(full, "entry")
             _claim(key)
 
             # islink must be checked before isfile: isfile follows symlinks,
@@ -559,6 +590,9 @@ def compute_tree_manifest(
                     ) from e
                 target = unicodedata.normalize("NFC", target)
                 manifest[key] = {"type": "symlink", "target": target}
+                # paths[key] is the raw on-disk path (pre-NFC); it re-opens this
+                # exact entry where the key (NFC) may not resolve on disk.
+                paths[key] = rel_posix
             elif os.path.isfile(full):
                 # nofollow: if this entry was swapped for a symlink after the
                 # islink check above, refuse it rather than hash its target.
@@ -566,6 +600,7 @@ def compute_tree_manifest(
                     "type": "file",
                     "hash": _format_digest(_file_digest(full, nofollow=True), None),
                 }
+                paths[key] = rel_posix
             else:
                 # isfile() is also False if the entry vanished or became
                 # unreadable between the walk and this stat (a concurrent change
@@ -598,7 +633,7 @@ def compute_tree_manifest(
             f"canonically hashed (unassigned/unnormalizable code point?): {e}"
         ) from e
     digest = compute_bytes(serialized, prefix=prefix)
-    return TreeManifest(digest=digest, entries=manifest)
+    return TreeManifest(digest=digest, entries=manifest, paths=paths)
 
 
 def compute_tree(path: Union[str, os.PathLike], prefix: Optional[str] = None) -> str:

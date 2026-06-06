@@ -41,9 +41,10 @@ file_hash = hash.compute_file("video.mp4")        # 'sha256:...' (streamed, mult
 tree_hash = hash.compute_tree("mirror/")          # 'sha256:...' (reproducible directory digest)
 
 # Same walk, but keep the per-file content hashes (for content-addressed dedup)
-manifest = hash.compute_tree_manifest("mirror/")  # TreeManifest(digest, entries)
+manifest = hash.compute_tree_manifest("mirror/")  # TreeManifest(digest, entries, paths)
 manifest.digest                                   # == compute_tree("mirror/")
-manifest.entries["index.html"]                    # {'type': 'file', 'hash': 'sha256:...'}
+manifest.entries["index.html"]                    # {'type': 'file', 'hash': 'sha256:...'} (NFC key)
+manifest.paths["index.html"]                      # real on-disk relative path, to re-read the bytes
 
 # Chain fingerprinting
 fingerprints = chain.fingerprint([config1, config2, config3])

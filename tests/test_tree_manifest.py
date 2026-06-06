@@ -67,7 +67,7 @@ class TestPublicSurface:
     def test_fields_present(self, tmp_path):
         _write(tmp_path / "t" / "a.txt", b"alpha")
         m = compute_tree_manifest(tmp_path / "t")
-        assert set(m.__dataclass_fields__) == {"digest", "entries"}
+        assert set(m.__dataclass_fields__) == {"digest", "entries", "paths"}
         assert m.digest.startswith("sha256:")
         assert isinstance(m.entries, dict)
 
@@ -177,6 +177,94 @@ class TestInvariant:
         m2 = _assert_invariant(t2)
         assert set(m1.entries) == set(m2.entries) == {nfc}
         assert m1.digest == m2.digest
+
+
+class TestOnDiskPaths:
+    """`paths` exposes the real on-disk relative path per entry (pre-NFC), so a
+    consumer can re-read a file whose stored name form differs from its NFC key.
+    Brief brief-20260606-psks; the bug it fixes is an NFD-named file being
+    unreadable via the composed key on a non-normalizing filesystem (Linux)."""
+
+    # U+00E9 is precomposed 'é'; "e" + U+0301 is its decomposed (NFD) form.
+    _NFC = "caf\u00e9.txt"
+    _NFD = "cafe\u0301.txt"
+
+    def test_keys_match_entries(self, tmp_path):
+        """paths.keys() == entries.keys() exactly, across files, symlinks, dirs."""
+        root = tmp_path / "t"
+        _write(root / "a.txt", b"a")
+        _write(root / "d" / "b.txt", b"b")
+        os.symlink("a.txt", root / "link")
+        m = compute_tree_manifest(root)
+        assert m.paths.keys() == m.entries.keys()
+
+    def test_ascii_nfc_paths_equal_keys(self, tmp_path):
+        """For all-ASCII / already-NFC names, paths[k] == k (the common no-op)."""
+        root = tmp_path / "t"
+        _write(root / "a.txt", b"a")
+        _write(root / "sub" / "b.txt", b"b")
+        os.symlink("a.txt", root / "link")
+        m = compute_tree_manifest(root)
+        for k in m.entries:
+            assert m.paths[k] == k
+
+    def test_blob_at_path_hashes_to_entry(self, tmp_path):
+        """The blob at paths[k] hashes to entries[k]['hash'] - exactly hoard's
+        operation: read the file at the real path, confirm it is the addressed
+        content."""
+        root = tmp_path / "t"
+        _write(root / "a.txt", b"alpha")
+        _write(root / "deep" / "b.bin", b"\x00\x01beta")
+        m = compute_tree_manifest(root)
+        for k, desc in m.entries.items():
+            if desc["type"] == "file":
+                assert compute_file(root / m.paths[k]) == desc["hash"]
+
+    def test_nfd_name_real_path_reopens_where_nfc_key_does_not(self, tmp_path):
+        """The fix: an NFD-named file is keyed by its NFC form (digest stability),
+        but only paths[nfc_key] - the decomposed on-disk path - re-opens it."""
+        root = tmp_path / "t"
+        root.mkdir()
+        (root / self._NFD).write_bytes(b"payload")
+        on_disk = os.listdir(root)
+        # Only meaningful if the filesystem preserved the decomposed bytes.
+        if self._NFD not in on_disk or self._NFC in on_disk:
+            pytest.skip("filesystem normalized the name; cannot exercise NFD path")
+
+        m = compute_tree_manifest(root)
+        # The entry key is the composed (NFC) form...
+        assert self._NFC in m.entries
+        assert self._NFD not in m.entries
+        # ...but the on-disk path is the decomposed form that actually exists.
+        assert m.paths[self._NFC] == self._NFD
+        assert not (root / self._NFC).exists()   # the bug: NFC key does not resolve
+        assert (root / m.paths[self._NFC]).exists()   # the real path does
+        # And the blob there hashes to the entry's address.
+        assert compute_file(root / m.paths[self._NFC]) == m.entries[self._NFC]["hash"]
+
+    def test_paths_outside_digest_nfc_nfd_agree(self, tmp_path):
+        """An NFC-named tree and an NFD-named tree of the same content hash
+        identically (paths differ, digest does not - paths is not in the digest)."""
+        t_nfc, t_nfd = tmp_path / "t1", tmp_path / "t2"
+        _write(t_nfc / self._NFC, b"data")
+        _write(t_nfd / self._NFD, b"data")
+        if self._NFD not in os.listdir(t_nfd) or self._NFC in os.listdir(t_nfd):
+            pytest.skip("filesystem normalized the NFD name")
+        m_nfc = compute_tree_manifest(t_nfc)
+        m_nfd = compute_tree_manifest(t_nfd)
+        assert m_nfc.digest == m_nfd.digest          # digest unaffected
+        assert m_nfc.entries == m_nfd.entries          # same NFC keys + hashes
+        assert m_nfc.paths[self._NFC] == self._NFC     # on-disk forms differ...
+        assert m_nfd.paths[self._NFC] == self._NFD     # ...only in paths
+
+    def test_symlink_path_recorded(self, tmp_path):
+        """A symlink entry gets a paths entry locating the link itself."""
+        root = tmp_path / "t"
+        _write(root / "real.txt", b"x")
+        os.symlink("real.txt", root / "link")
+        m = compute_tree_manifest(root)
+        assert m.paths["link"] == "link"
+        assert os.path.islink(root / m.paths["link"])
 
 
 class TestPrefix:
@@ -492,11 +580,19 @@ class TestInvariantProperty:
             reloaded = json.loads(canon.serialize(m.entries))
             assert compute_bytes(canon.serialize(reloaded), prefix=prefix) == m.digest
 
-            # Every entry is a well-formed typed descriptor; file hashes unprefixed.
+            # paths mirrors entries exactly and is outside the digest.
+            assert m.paths.keys() == m.entries.keys()
+
+            # Every entry is a well-formed typed descriptor; file hashes
+            # unprefixed; and paths[key] re-opens the exact on-disk entry.
             for key, desc in m.entries.items():
                 assert desc["type"] in ("file", "symlink")
+                real = os.path.join(root, m.paths[key])
+                assert os.path.lexists(real)  # the real path exists on disk
                 if desc["type"] == "file":
                     assert desc["hash"].startswith("sha256:")
                     assert ":" not in desc["hash"][len("sha256:"):]
+                    # the blob at the real path hashes to the entry's address
+                    assert compute_file(real) == desc["hash"]
                 else:
                     assert "target" in desc
